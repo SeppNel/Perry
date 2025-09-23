@@ -3,6 +3,7 @@
 #include "ui_mainwindow.h"
 #include "utils.h"
 #include "widgets/chatMessageWidget.h"
+#include "workers/voice_input.h"
 #include <QDateTime>
 #include <QListWidget>
 #include <QScrollBar>
@@ -11,7 +12,6 @@
 #include <QTimer>
 #include <cstdint>
 #include <iostream>
-#include <qlocale.h>
 #include <vector>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -129,14 +129,34 @@ void MainWindow::addMessage(const MessageInfo &m) {
     ui->chatAreaLayout->addWidget(msg);
 }
 
+void MainWindow::startVoiceThread() {
+    QThread *thread = new QThread();
+    VoiceInput *vc = new VoiceInput();
+
+    vc->moveToThread(thread);
+
+    QObject::connect(thread, &QThread::started, [vc]() {
+        vc->init("127.0.0.1");
+    });
+
+    QObject::connect(this, &MainWindow::stopVC, vc, &VoiceInput::stop);
+    QObject::connect(thread, &QThread::finished, vc, &QObject::deleteLater);
+    thread->start();
+}
+
 void MainWindow::switchChannel(QListWidgetItem *ch) {
     std::cout << ch->text().toStdString() << std::endl;
     std::cout << ch->data(ChannelListRoles::ID).toInt() << std::endl;
     std::cout << ch->data(ChannelListRoles::IS_VOICE).toBool() << std::endl;
 
-    currentChannel = ch->data(ChannelListRoles::ID).toInt();
-    clearLayout(ui->chatAreaLayout);
-    requestChannelMessages();
+    if (ch->data(ChannelListRoles::IS_VOICE).toBool()) {
+        startVoiceThread();
+    } else {
+        emit stopVC();
+        currentChannel = ch->data(ChannelListRoles::ID).toInt();
+        clearLayout(ui->chatAreaLayout);
+        requestChannelMessages();
+    }
 }
 
 void MainWindow::updateUsers(const std::vector<UserInfo> &v) {

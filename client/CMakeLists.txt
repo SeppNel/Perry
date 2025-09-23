@@ -5,6 +5,17 @@ set(CMAKE_CXX_STANDARD 20)
 
 include(FetchContent)
 
+# Fetch libsoundio
+set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    libsoundio
+    GIT_REPOSITORY https://github.com/andrewrk/libsoundio
+    GIT_TAG        2.0.1-7  # replace with the latest tag you want
+)
+FetchContent_MakeAvailable(libsoundio)
+
 # QT6
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
@@ -30,10 +41,12 @@ qt_add_executable(perry_client
   src/workers/socket_reader.cpp
   src/workers/socket_sender.h
   src/workers/socket_sender.cpp
+  src/workers/voice_input.h
+  src/workers/voice_input.cpp
   src/widgets/chatMessageWidget.h
   src/widgets/chatMessageWidget.ui
 )
 
 #Link
-target_link_libraries(perry_client PRIVATE Threads::Threads Qt6::Widgets)
-target_include_directories(perry_client PRIVATE ../common)
+target_link_libraries(perry_client PRIVATE Threads::Threads Qt6::Widgets libsoundio_shared)
+target_include_directories(perry_client PRIVATE ../common ${libsoundio_SOURCE_DIR})

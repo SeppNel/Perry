@@ -37,6 +37,7 @@ class MainWindow : public QMainWindow {
 
     void requestChannelMessages();
     void populateUsers();
+    void startVoiceThread();
 
   public slots:
     void populateChannels(const std::vector<ChannelInfo> &ch);
@@ -49,4 +50,5 @@ class MainWindow : public QMainWindow {
 
   signals:
     void sendPacket(const PacketHeader &header, const std::vector<char> &payload);
+    void stopVC();
 };

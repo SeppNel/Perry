@@ -10,7 +10,7 @@ void SocketSender::init(int s) {
     sock = s;
     QTimer *timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, &SocketSender::run);
-    timer->start(FIFO_FREQ_MS); // 1000ms = 1 second
+    timer->start(FIFO_FREQ_MS);
 }
 
 void SocketSender::run() {
