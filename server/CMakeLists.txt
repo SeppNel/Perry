@@ -43,5 +43,5 @@ add_executable(perry_server
 
 # Link nanodbc and ODBC
 target_link_libraries(perry_server PRIVATE nanodbc bcrypt ${ODBC_LIBRARIES})
-target_include_directories(perry_server PRIVATE ../common ${ODBC_INCLUDE_DIRS})
+target_include_directories(perry_server PRIVATE ../common lib ${ODBC_INCLUDE_DIRS})
 target_link_libraries(perry_server PRIVATE Threads::Threads)
