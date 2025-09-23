@@ -4,6 +4,9 @@ Cross-platform discord-like chat application completly self hosted.
 > [!WARNING]  
 > This is under active development. It is not ready for general use yet. Many basic features are yet not implemented and the ones that are may break at any point.
 
+<img width="999" height="621" alt="image" src="https://github.com/user-attachments/assets/0375b156-0fd3-4fb6-b06c-b33c44971530" />
+
+
 # Usage
 TODO
 
