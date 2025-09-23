@@ -1,0 +1,7 @@
+server/build
+client/build
+server/.cache
+client/.cache
+*.cache
+*mysql_data*
+*.sh
