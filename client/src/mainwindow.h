@@ -33,6 +33,7 @@ class MainWindow : public QMainWindow {
     Ui::MainWindow *ui;
     int sock;
     uint currentChannel = 1;
+    int currentVoiceChannel = -1;
     std::unordered_map<uint32_t, UserData> m_users;
 
     void requestChannelMessages();
@@ -47,6 +48,7 @@ class MainWindow : public QMainWindow {
   private slots:
     void onReturnPressed();
     void switchChannel(QListWidgetItem *ch);
+    void finishCall();
 
   signals:
     void sendPacket(const PacketHeader &header, const std::vector<char> &payload);

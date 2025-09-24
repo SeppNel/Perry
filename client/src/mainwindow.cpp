@@ -6,12 +6,12 @@
 #include "workers/voice_input.h"
 #include <QDateTime>
 #include <QListWidget>
+#include <QPushButton>
 #include <QScrollBar>
 #include <QThread>
 #include <QTimeZone>
 #include <QTimer>
 #include <cstdint>
-#include <iostream>
 #include <vector>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -31,11 +31,14 @@ void MainWindow::init(int sock) {
     // Connect Main UI stuff
     connect(ui->lineEdit, &QLineEdit::returnPressed, this, &MainWindow::onReturnPressed);
     connect(ui->channelsList, &QListWidget::itemPressed, this, &MainWindow::switchChannel);
+    connect(ui->closeCall, &QPushButton::pressed, this, &MainWindow::finishCall);
 
     QScrollBar *bar = ui->chatArea->verticalScrollBar();
     connect(bar, &QScrollBar::rangeChanged, this, [bar, this]() {
         bar->setValue(bar->maximum());
     });
+
+    ui->closeCall->setVisible(false);
 
     // Do stuff
     while (m_users.empty()) {
@@ -142,17 +145,23 @@ void MainWindow::startVoiceThread() {
     QObject::connect(this, &MainWindow::stopVC, vc, &VoiceInput::stop);
     QObject::connect(thread, &QThread::finished, vc, &QObject::deleteLater);
     thread->start();
+
+    ui->closeCall->setVisible(true);
 }
 
 void MainWindow::switchChannel(QListWidgetItem *ch) {
-    std::cout << ch->text().toStdString() << std::endl;
-    std::cout << ch->data(ChannelListRoles::ID).toInt() << std::endl;
-    std::cout << ch->data(ChannelListRoles::IS_VOICE).toBool() << std::endl;
+    int id = ch->data(ChannelListRoles::ID).toInt();
+    bool is_voice = ch->data(ChannelListRoles::IS_VOICE).toBool();
 
-    if (ch->data(ChannelListRoles::IS_VOICE).toBool()) {
-        startVoiceThread();
-    } else {
+    if (id == currentChannel || id == currentVoiceChannel) {
+        return;
+    }
+
+    if (is_voice) {
         emit stopVC();
+        startVoiceThread();
+        currentVoiceChannel = ch->data(ChannelListRoles::ID).toInt();
+    } else {
         currentChannel = ch->data(ChannelListRoles::ID).toInt();
         clearLayout(ui->chatAreaLayout);
         requestChannelMessages();
@@ -167,4 +176,10 @@ void MainWindow::updateUsers(const std::vector<UserInfo> &v) {
     }
 
     populateUsers();
+}
+
+void MainWindow::finishCall() {
+    emit stopVC();
+    ui->closeCall->setVisible(false);
+    currentVoiceChannel = -1;
 }
