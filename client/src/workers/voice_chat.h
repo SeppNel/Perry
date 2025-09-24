@@ -1,19 +1,18 @@
 #pragma once
 #include <QObject>
-#include <qtmetamacros.h>
+#include <cstdint>
 #include <string>
 #include <thread>
 
-class VoiceOutput : public QObject {
+class VoiceChat : public QObject {
     Q_OBJECT
 
   public:
-    void init(int sock);
+    void init(std::string ip, uint32_t ch);
 
   public slots:
     void stop();
 
   private:
-    std::string server_ip;
     std::thread main;
 };

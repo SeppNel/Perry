@@ -50,24 +50,19 @@ void network_thread(int client_socket) {
 
     printf("Client connected, receiving audio...\n");
 
-    std::cout << "received channel " << channel << std::endl;
-
     while (AudioServer::running.load()) {
-        std::cout << "Receiving chunk..." << std::endl;
         bool got = recv_all(client_socket, chunk.data(), CHUNK_SIZE * sizeof(float));
         if (!got) {
             printf("Client disconnected from voice\n");
             break;
         }
 
-        std::cout << "Sending chunk..." << std::endl;
-        // Send to clients other than this one
         for (const int client : clients_per_channel[channel]) {
             /*
             if (client == client_socket) {
                 continue;
             }
-                */
+            */
 
             send_all(client, chunk.data(), CHUNK_SIZE * sizeof(float));
         }

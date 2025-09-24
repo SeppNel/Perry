@@ -41,10 +41,8 @@ qt_add_executable(perry_client
   src/workers/socket_reader.cpp
   src/workers/socket_sender.h
   src/workers/socket_sender.cpp
-  src/workers/voice_input.h
-  src/workers/voice_input.cpp
-  src/workers/voice_output.h
-  src/workers/voice_output.cpp
+  src/workers/voice_chat.h
+  src/workers/voice_chat.cpp
   src/widgets/chatMessageWidget.h
   src/widgets/chatMessageWidget.ui
 )

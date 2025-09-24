@@ -3,8 +3,7 @@
 #include "ui_mainwindow.h"
 #include "utils.h"
 #include "widgets/chatMessageWidget.h"
-#include "workers/voice_input.h"
-#include "workers/voice_output.h"
+#include "workers/voice_chat.h"
 #include <QDateTime>
 #include <QListWidget>
 #include <QPushButton>
@@ -24,9 +23,8 @@ MainWindow::~MainWindow() {
     delete ui;
 }
 
-void MainWindow::init(int sock, int vc_sock) {
+void MainWindow::init(int sock) {
     this->sock = sock;
-    this->vc_sock = vc_sock;
 
     ui->chatAreaLayout->setAlignment(Qt::AlignTop);
 
@@ -137,31 +135,18 @@ void MainWindow::addMessage(const MessageInfo &m) {
 void MainWindow::startVoiceThread() {
     // input thread
     QThread *thread = new QThread();
-    VoiceInput *vi = new VoiceInput();
+    VoiceChat *vi = new VoiceChat();
 
     vi->moveToThread(thread);
 
     QObject::connect(thread, &QThread::started, [vi, this]() {
-        vi->init(vc_sock, currentVoiceChannel);
+        vi->init("127.0.0.1", currentVoiceChannel);
     });
 
-    QObject::connect(this, &MainWindow::stopVC, vi, &VoiceInput::stop);
+    QObject::connect(this, &MainWindow::stopVC, vi, &VoiceChat::stop);
     QObject::connect(thread, &QThread::finished, vi, &QObject::deleteLater);
 
-    QThread *thread2 = new QThread();
-    VoiceOutput *vo = new VoiceOutput();
-
-    vo->moveToThread(thread2);
-
-    QObject::connect(thread2, &QThread::started, [vo, this]() {
-        vo->init(vc_sock);
-    });
-
-    QObject::connect(this, &MainWindow::stopVC, vo, &VoiceOutput::stop);
-    QObject::connect(thread2, &QThread::finished, vo, &QObject::deleteLater);
-
     thread->start();
-    thread2->start();
 
     ui->closeCall->setVisible(true);
 }
