@@ -1,15 +1,14 @@
 #pragma once
 #include <QObject>
-#include <cstdint>
 #include <qtmetamacros.h>
 #include <string>
 #include <thread>
 
-class VoiceInput : public QObject {
+class VoiceOutput : public QObject {
     Q_OBJECT
 
   public:
-    void init(int sock, uint32_t ch);
+    void init(int sock);
 
   public slots:
     void stop();
@@ -17,5 +16,4 @@ class VoiceInput : public QObject {
   private:
     std::string server_ip;
     std::thread main;
-    uint32_t channel;
 };

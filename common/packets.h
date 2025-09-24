@@ -31,6 +31,9 @@ struct PacketHeader {
 };
 #pragma pack(pop)
 
+bool send_all(int sock, const void *buf, size_t len);
+bool recv_all(int sock, void *buf, size_t len);
+
 // send a packet
 bool send_packet(int sock, PacketType type, const std::vector<char> &data);
 

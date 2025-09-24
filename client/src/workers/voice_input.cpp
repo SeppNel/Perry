@@ -1,7 +1,10 @@
 #include "voice_input.h"
+#include "packets.h"
 #include <arpa/inet.h>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
+#include <iostream>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <qthread.h>
@@ -10,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -34,10 +38,13 @@ static std::atomic<int> read_index{0};  // next read pos (mod ring_buffer_size)
 static std::atomic<bool> running{true};
 static std::atomic<bool> connected{false};
 
-void run(std::string server_ip);
+static int vc_socket = -1;
 
-void VoiceInput::init(std::string ip) {
-    server_ip = ip;
+void run(uint32_t channel);
+
+void VoiceInput::init(int sock, uint32_t ch) {
+    channel = ch;
+    vc_socket = sock;
 
     soundio = nullptr;
     in_device = nullptr;
@@ -49,7 +56,7 @@ void VoiceInput::init(std::string ip) {
     running.store(true);
     connected.store(false);
 
-    main = std::thread(run, server_ip);
+    main = std::thread(run, channel);
 }
 
 void VoiceInput::stop() {
@@ -99,6 +106,7 @@ static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
     int err;
     int frames_left = frame_count_min;
 
+    // std::cout << "frames_left = " << frames_left << std::endl;
     while (frames_left > 0) {
         int frame_count = frames_left;
         err = soundio_instream_begin_read(instream, &areas, &frame_count);
@@ -140,33 +148,9 @@ static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
 }
 
 // Network thread: reads CHUNK_SIZE samples from ring buffer and sends them
-void network_thread(const std::string server_ip) {
+void network_thread(const uint32_t channel) {
     while (running.load()) {
-        int sock = socket(AF_INET, SOCK_STREAM, 0);
-        if (sock < 0) {
-            perror("socket");
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            continue;
-        }
-
-        int flag = 1;
-        setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-
-        // enlarge send buffer
-        int sndbuf = CHUNK_SIZE * sizeof(float) * 8;
-        setsockopt(sock, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
-
-        struct sockaddr_in srv;
-        srv.sin_family = AF_INET;
-        srv.sin_port = htons(PORT);
-        inet_pton(AF_INET, server_ip.c_str(), &srv.sin_addr);
-
-        if (::connect(sock, (struct sockaddr *)&srv, sizeof(srv)) < 0) {
-            perror("connect");
-            close(sock);
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            continue;
-        }
+        send_packet(vc_socket, PacketType::UINT, channel);
 
         printf("Connected to server, streaming audio...\n");
         connected.store(true);
@@ -177,9 +161,12 @@ void network_thread(const std::string server_ip) {
             // If not enough samples, sleep a tiny bit
             int available = ring_fill_count();
             while (available < CHUNK_SIZE) {
+                // std::cout << "not enough samples" << std::endl;
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 available = ring_fill_count();
             }
+
+            std::cout << "Enough samples" << std::endl;
 
             int r = read_index.load(std::memory_order_relaxed);
             for (int i = 0; i < CHUNK_SIZE; ++i) {
@@ -189,17 +176,9 @@ void network_thread(const std::string server_ip) {
             read_index.store(r, std::memory_order_release);
 
             // sendbuf ready: send all bytes
-            size_t bytes_to_send = CHUNK_SIZE * sizeof(float);
-            char *p = (char *)sendbuf.data();
-            while (bytes_to_send > 0) {
-                ssize_t n = send(sock, p, bytes_to_send, MSG_NOSIGNAL);
-                if (n <= 0) {
-                    perror("send");
-                    connected.store(false);
-                    break;
-                }
-                p += n;
-                bytes_to_send -= n;
+            if (!send_all(vc_socket, sendbuf.data(), CHUNK_SIZE * sizeof(float))) {
+                perror("send");
+                connected.store(false);
             }
 
             // yield thread
@@ -207,14 +186,14 @@ void network_thread(const std::string server_ip) {
         }
 
         connected.store(false);
-        close(sock);
+        close(vc_socket);
         printf("Disconnected from server\n");
         if (running.load())
             std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 }
 
-void run(std::string server_ip) {
+void run(uint32_t channel) {
     // allocate ring buffer
     ring_buffer = new float[RING_SIZE];
     if (!ring_buffer) {
@@ -264,15 +243,19 @@ void run(std::string server_ip) {
         return;
     }
 
+    printf("Actual sample rate: %d\n", instream->sample_rate);
+    printf("Actual format: %d\n", instream->format);
+    printf("Actual latency: %f\n", instream->software_latency);
+
     err = soundio_instream_start(instream);
     if (err) {
         fprintf(stderr, "Unable to start input stream: %s\n", soundio_strerror(err));
         return;
     }
 
-    std::thread net_t(network_thread, server_ip);
+    std::thread net_t(network_thread, channel);
 
-    printf("AUDIO CLIENT STARTED: streaming to %s:%d\n", server_ip.c_str(), PORT);
+    printf("AUDIO CLIENT STARTED: streaming\n");
 
     // main loop: pump soundio events
     while (running.load()) {

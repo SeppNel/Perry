@@ -26,12 +26,13 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
   public:
     explicit MainWindow(QWidget *parent = nullptr);
-    void init(int sock);
+    void init(int sock, int vc_sock);
     ~MainWindow();
 
   private:
     Ui::MainWindow *ui;
     int sock;
+    int vc_sock;
     uint currentChannel = 1;
     int currentVoiceChannel = -1;
     std::unordered_map<uint32_t, UserData> m_users;

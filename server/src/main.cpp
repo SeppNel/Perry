@@ -1,4 +1,5 @@
 #include "DbManager.h"
+#include "audio_server.h"
 #include "common_data.h"
 #include "packets.h"
 #include <arpa/inet.h>
@@ -211,12 +212,17 @@ int main() {
         return -1;
     }
 
+    std::thread audio_server(AudioServer::run);
+
     std::cout << "Server started on port " << PORT << std::endl;
 
     while (true) {
         client_new_socket = accept(server_main_socket, (struct sockaddr *)&address, (socklen_t *)&addrlen);
         std::thread(handle_client, client_new_socket).detach();
     }
+
+    AudioServer::running.store(false);
+    audio_server.join();
 
     return 0;
 }

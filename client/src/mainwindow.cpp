@@ -4,6 +4,7 @@
 #include "utils.h"
 #include "widgets/chatMessageWidget.h"
 #include "workers/voice_input.h"
+#include "workers/voice_output.h"
 #include <QDateTime>
 #include <QListWidget>
 #include <QPushButton>
@@ -23,8 +24,9 @@ MainWindow::~MainWindow() {
     delete ui;
 }
 
-void MainWindow::init(int sock) {
+void MainWindow::init(int sock, int vc_sock) {
     this->sock = sock;
+    this->vc_sock = vc_sock;
 
     ui->chatAreaLayout->setAlignment(Qt::AlignTop);
 
@@ -133,18 +135,33 @@ void MainWindow::addMessage(const MessageInfo &m) {
 }
 
 void MainWindow::startVoiceThread() {
+    // input thread
     QThread *thread = new QThread();
-    VoiceInput *vc = new VoiceInput();
+    VoiceInput *vi = new VoiceInput();
 
-    vc->moveToThread(thread);
+    vi->moveToThread(thread);
 
-    QObject::connect(thread, &QThread::started, [vc]() {
-        vc->init("127.0.0.1");
+    QObject::connect(thread, &QThread::started, [vi, this]() {
+        vi->init(vc_sock, currentVoiceChannel);
     });
 
-    QObject::connect(this, &MainWindow::stopVC, vc, &VoiceInput::stop);
-    QObject::connect(thread, &QThread::finished, vc, &QObject::deleteLater);
+    QObject::connect(this, &MainWindow::stopVC, vi, &VoiceInput::stop);
+    QObject::connect(thread, &QThread::finished, vi, &QObject::deleteLater);
+
+    QThread *thread2 = new QThread();
+    VoiceOutput *vo = new VoiceOutput();
+
+    vo->moveToThread(thread2);
+
+    QObject::connect(thread2, &QThread::started, [vo, this]() {
+        vo->init(vc_sock);
+    });
+
+    QObject::connect(this, &MainWindow::stopVC, vo, &VoiceOutput::stop);
+    QObject::connect(thread2, &QThread::finished, vo, &QObject::deleteLater);
+
     thread->start();
+    thread2->start();
 
     ui->closeCall->setVisible(true);
 }
@@ -159,8 +176,8 @@ void MainWindow::switchChannel(QListWidgetItem *ch) {
 
     if (is_voice) {
         emit stopVC();
-        startVoiceThread();
         currentVoiceChannel = ch->data(ChannelListRoles::ID).toInt();
+        startVoiceThread();
     } else {
         currentChannel = ch->data(ChannelListRoles::ID).toInt();
         clearLayout(ui->chatAreaLayout);

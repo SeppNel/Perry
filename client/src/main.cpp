@@ -8,10 +8,15 @@
 #include <arpa/inet.h>
 #include <cstdint>
 #include <iostream>
+#include <netinet/tcp.h>
 #include <string>
 #include <unistd.h>
 
 #define PORT 9020
+
+// Audio
+#define CHUNK_SIZE 240 // 5ms at 48kHz
+#define VC_PORT 8888
 
 void startWorkers(int sock, MainWindow &mainwindow) {
     // Prepare periodic background thread
@@ -114,11 +119,31 @@ int main(int argc, char **argv) {
     }
     std::cout << "Login succesfull" << std::endl;
 
+    // Voice socket
+    int vc_sock = socket(AF_INET, SOCK_STREAM, 0);
+    int flag = 1;
+    setsockopt(vc_sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+
+    // enlarge send buffer
+    int sndbuf = CHUNK_SIZE * sizeof(float) * 8;
+    setsockopt(vc_sock, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+
+    struct sockaddr_in srv;
+    srv.sin_family = AF_INET;
+    srv.sin_port = htons(VC_PORT);
+    inet_pton(AF_INET, "127.0.0.1", &srv.sin_addr);
+
+    if (connect(vc_sock, (struct sockaddr *)&srv, sizeof(srv)) < 0) {
+        perror("connect");
+        close(vc_sock);
+        return EXIT_FAILURE;
+    }
+
     QApplication app(argc, argv);
 
     MainWindow window;
     startWorkers(sock, window);
-    window.init(sock);
+    window.init(sock, vc_sock);
 
     window.show();
 

@@ -17,6 +17,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nanodbc)
 
+# Fetch Bcrypt
 FetchContent_Declare(
     bcrypt
     GIT_REPOSITORY https://github.com/hilch/Bcrypt.cpp
@@ -34,6 +35,8 @@ find_package(Threads REQUIRED)
 #add_executable(perry_server src/main.cpp)
 add_executable(perry_server
   src/main.cpp
+  src/audio_server.cpp
+  src/audio_server.h
   ../common/common_data.h
   ../common/packets.h
   ../common/packets.cpp
