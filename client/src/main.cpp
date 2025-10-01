@@ -1,3 +1,4 @@
+#include "config.h"
 #include "mainwindow.h"
 #include "packets.h"
 #include "workers/periodic_10.h"
@@ -11,12 +12,6 @@
 #include <netinet/tcp.h>
 #include <string>
 #include <unistd.h>
-
-#define PORT 9020
-
-// Audio
-#define CHUNK_SIZE 240 // 5ms at 48kHz
-#define VC_PORT 8888
 
 void startWorkers(int sock, MainWindow &mainwindow) {
     // Prepare periodic background thread
@@ -67,20 +62,9 @@ void startWorkers(int sock, MainWindow &mainwindow) {
     thread3->start();
 }
 
-void receive_messages(int sock) {
-    char buffer[1024];
-    while (true) {
-        memset(buffer, 0, sizeof(buffer));
-        int valread = read(sock, buffer, 1024);
-        if (valread <= 0)
-            break;
-        std::cout << buffer << std::endl;
-    }
-}
-
 bool login(int sock) {
-    std::string username = "test";
-    std::string passwd = "test";
+    std::string username = Config::username;
+    std::string passwd = Config::password;
     uint8_t username_len = username.size();
 
     std::cout << "Sending username" << std::endl;
@@ -98,14 +82,16 @@ bool login(int sock) {
 }
 
 int main(int argc, char **argv) {
+    Config::init("configFile.yml");
+
     int sock = 0;
     struct sockaddr_in serv_addr;
 
     sock = socket(AF_INET, SOCK_STREAM, 0);
     serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(PORT);
+    serv_addr.sin_port = htons(Config::server_port_text);
 
-    inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr);
+    inet_pton(AF_INET, Config::server_addr.c_str(), &serv_addr.sin_addr);
 
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1) {
         std::cout << "Could not connect to server" << std::endl;

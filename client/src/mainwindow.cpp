@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "common_data.h"
+#include "config.h"
 #include "ui_mainwindow.h"
 #include "utils.h"
 #include "widgets/chatMessageWidget.h"
@@ -26,8 +27,6 @@ MainWindow::~MainWindow() {
 void MainWindow::init(int sock) {
     this->sock = sock;
 
-    ui->chatAreaLayout->setAlignment(Qt::AlignTop);
-
     // Connect Main UI stuff
     connect(ui->lineEdit, &QLineEdit::returnPressed, this, &MainWindow::onReturnPressed);
     connect(ui->channelsList, &QListWidget::itemPressed, this, &MainWindow::switchChannel);
@@ -38,7 +37,10 @@ void MainWindow::init(int sock) {
         bar->setValue(bar->maximum());
     });
 
+    // Set Stuff
+    ui->chatAreaLayout->setAlignment(Qt::AlignTop);
     ui->closeCall->setVisible(false);
+    ui->ub_username->setText(QString::fromStdString(Config::username));
 
     // Do stuff
     while (m_users.empty()) {

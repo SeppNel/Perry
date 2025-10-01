@@ -16,6 +16,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(libsoundio)
 
+# Fetch Yaml-cpp
+FetchContent_Declare(
+  yaml-cpp
+  GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+  GIT_TAG 0.8.0 # Can be a tag (yaml-cpp-x.x.x), a commit hash, or a branch name (master)
+)
+FetchContent_MakeAvailable(yaml-cpp)
+
 # QT6
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
@@ -35,6 +43,8 @@ qt_add_executable(perry_client
   src/mainwindow.ui
   src/utils.h
   src/utils.cpp
+  src/config.h
+  src/config.cpp
   src/workers/periodic_10.h
   src/workers/periodic_10.cpp
   src/workers/socket_reader.h
@@ -48,5 +58,5 @@ qt_add_executable(perry_client
 )
 
 #Link
-target_link_libraries(perry_client PRIVATE Threads::Threads Qt6::Widgets libsoundio_shared)
+target_link_libraries(perry_client PRIVATE Threads::Threads Qt6::Widgets libsoundio_shared yaml-cpp::yaml-cpp)
 target_include_directories(perry_client PRIVATE ../common ${libsoundio_SOURCE_DIR})
