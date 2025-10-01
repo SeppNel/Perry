@@ -2,10 +2,13 @@
 #include "audio_server.h"
 #include "common_data.h"
 #include "packets.h"
+#include "utils.h"
 #include <arpa/inet.h>
 #include <bcrypt.h>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <nanodbc/nanodbc.h>
@@ -15,30 +18,15 @@
 #include <unistd.h>
 #include <vector>
 
-using std::string;
+namespace fs = std::filesystem;
 
 #define PORT 9020
 #define BCRYPT_ROUNDS 12
 
-struct Client_t {
-    uint32_t userId;
-    int socket;
-};
+static std::string img_store_path = "./images/";
 
 std::vector<Client_t> clients;
 std::mutex clients_mutex;
-
-ssize_t findClientIndex(uint32_t userId) {
-    ssize_t index = 0;
-    for (Client_t c : clients) {
-        if (c.userId == userId) {
-            return index;
-        }
-        index++;
-    }
-
-    return -1;
-}
 
 bool authenticate(const int sock, uint32_t &userId) {
     std::string username;
@@ -146,7 +134,7 @@ void handle_client(int sock) {
             std::vector<UserInfo> users = DbManager::getUsers();
 
             for (UserInfo &u : users) {
-                if (findClientIndex(u.id) != -1) {
+                if (findClientIndex(u.id, clients) != -1) {
                     u.is_online = true;
                 }
             }
@@ -168,6 +156,64 @@ void handle_client(int sock) {
             }
             break;
         }
+        case PacketType::LIST_USER_IMGS: {
+            std::vector<std::filesystem::path> images = getFilesByExtension(img_store_path, ".png");
+
+            send_packet(sock, PacketType::LIST_USER_IMGS, NULL, 0);
+            send_packet(sock, PacketType::UINT, images.size());
+
+            for (const std::filesystem::path &img : images) {
+                uint32_t uid = std::stoi(img.filename());
+                send_packet(sock, PacketType::UINT, uid);
+                send_image(sock, img);
+            }
+
+            break;
+        }
+        case PacketType::USER_IMAGE: {
+            uint64_t size;
+            recv_uint64(sock, size);
+
+            std::vector<char> buffer;
+            buffer.reserve(size);
+
+            PacketType p;
+            recv_packet(sock, p, buffer);
+
+            // Check if file is actually a png by file header
+            char png_header[8] = {'\x89', 'P', 'N', 'G', '\x0D', '\x0A', '\x1A', '\x0A'};
+            bool valid_png = true;
+            for (uint i = 0; i < 8; i++) {
+                if (buffer[i] != png_header[i]) {
+                    valid_png = false;
+                    std::cout << "Expected: " << png_header[i] << ", Got: " << buffer[i] << std::endl;
+                    break;
+                }
+            }
+
+            if (!valid_png) {
+                std::cerr << "Not a valid PNG\n";
+                break;
+            }
+
+            fs::path save_path = img_store_path + std::to_string(userId) + ".png";
+
+            if (save_path.has_parent_path()) {
+                try {
+                    fs::create_directories(save_path.parent_path());
+                } catch (const fs::filesystem_error &e) {
+                    std::cerr << "Failed to create directories: " << e.what() << "\n";
+                    break;
+                }
+            }
+
+            std::ofstream outFile(save_path, std::ios::binary);
+            if (!outFile.write(buffer.data(), size)) {
+                std::cerr << "Failed to write file\n";
+            }
+
+            break;
+        }
         default: {
             std::cout << "Unrecognized packet type" << std::endl;
             break;
@@ -178,7 +224,7 @@ void handle_client(int sock) {
     close(sock);
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
-        ssize_t index = findClientIndex(userId);
+        ssize_t index = findClientIndex(userId, clients);
         clients.erase(clients.begin() + index);
     }
 }

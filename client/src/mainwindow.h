@@ -3,6 +3,7 @@
 #include "packets.h"
 #include <QListWidgetItem>
 #include <QMainWindow>
+#include <qpixmap.h>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -35,15 +36,18 @@ class MainWindow : public QMainWindow {
     uint currentChannel = 1;
     int currentVoiceChannel = -1;
     std::unordered_map<uint32_t, UserData> m_users;
+    std::unordered_map<uint32_t, QPixmap> m_usersImgs;
 
     void requestChannelMessages();
     void populateUsers();
     void startVoiceThread();
+    void requestUserImages();
 
   public slots:
     void populateChannels(const std::vector<ChannelInfo> &ch);
     void addMessage(const MessageInfo &str);
     void updateUsers(const std::vector<UserInfo> &u);
+    void onUsersImgsReady(const std::unordered_map<uint32_t, QPixmap> &m);
 
   private slots:
     void onReturnPressed();
@@ -51,6 +55,6 @@ class MainWindow : public QMainWindow {
     void finishCall();
 
   signals:
-    void sendPacket(const PacketHeader &header, const std::vector<char> &payload);
+    void sendPacket(const PacketHeader &header, const std::vector<char> &payload = std::vector<char>());
     void stopVC();
 };

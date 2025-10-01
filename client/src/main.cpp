@@ -35,6 +35,7 @@ void startWorkers(int sock, MainWindow &mainwindow) {
     QObject::connect(receiver, &SocketReader::channelsReady, &mainwindow, &MainWindow::populateChannels);
     QObject::connect(receiver, &SocketReader::usersReady, &mainwindow, &MainWindow::updateUsers);
     QObject::connect(receiver, &SocketReader::newMessage, &mainwindow, &MainWindow::addMessage);
+    QObject::connect(receiver, &SocketReader::usersImgsReady, &mainwindow, &MainWindow::onUsersImgsReady);
     QObject::connect(thread2, &QThread::started, [receiver, sock]() {
         receiver->init(sock);
     });
@@ -104,6 +105,9 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
     std::cout << "Login succesfull" << std::endl;
+
+    send_packet(sock, PacketType::USER_IMAGE, NULL, 0);
+    send_image(sock, "./avatar.png");
 
     QApplication app(argc, argv);
 

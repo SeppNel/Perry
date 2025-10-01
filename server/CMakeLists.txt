@@ -35,6 +35,8 @@ find_package(Threads REQUIRED)
 #add_executable(perry_server src/main.cpp)
 add_executable(perry_server
   src/main.cpp
+  src/utils.h
+  src/utils.cpp
   src/audio_server.cpp
   src/audio_server.h
   ../common/common_data.h

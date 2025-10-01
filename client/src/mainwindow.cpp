@@ -12,6 +12,7 @@
 #include <QThread>
 #include <QTimeZone>
 #include <QTimer>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -43,9 +44,11 @@ void MainWindow::init(int sock) {
     ui->ub_username->setText(QString::fromStdString(Config::username));
 
     // Do stuff
+    requestUserImages();
     while (m_users.empty()) {
         qSleepNonBlocking(10);
     }
+
     requestChannelMessages();
 }
 
@@ -58,6 +61,11 @@ void MainWindow::requestChannelMessages() {
 
     PacketHeader h = {(uint8_t)PacketType::LIST_MESSAGES, static_cast<uint32_t>(payload.size())};
     emit sendPacket(h, payload);
+}
+
+void MainWindow::requestUserImages() {
+    PacketHeader h = {(uint8_t)PacketType::LIST_USER_IMGS, 0};
+    emit sendPacket(h);
 }
 
 void MainWindow::populateChannels(const std::vector<ChannelInfo> &ch) {
@@ -130,7 +138,7 @@ void MainWindow::addMessage(const MessageInfo &m) {
     dt = dt.toLocalTime();
 
     ChatMessageWidget *msg = new ChatMessageWidget;
-    msg->setMessage(user, dt.toString("hh:mm:ss dd-MM-yyyy"), text, QPixmap("./avatar.png"));
+    msg->setMessage(user, dt.toString("hh:mm:ss dd-MM-yyyy"), text, m_usersImgs[m.userId]);
     ui->chatAreaLayout->addWidget(msg);
 }
 
@@ -186,4 +194,8 @@ void MainWindow::finishCall() {
     emit stopVC();
     ui->closeCall->setVisible(false);
     currentVoiceChannel = -1;
+}
+
+void MainWindow::onUsersImgsReady(const std::unordered_map<uint32_t, QPixmap> &m) {
+    m_usersImgs = m;
 }

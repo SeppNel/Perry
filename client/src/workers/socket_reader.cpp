@@ -2,7 +2,11 @@
 #include "socket_reader.h"
 #include "common_data.h"
 #include "packets.h"
+#include <cstddef>
+#include <cstdint>
 #include <iostream>
+#include <qpixmap.h>
+#include <unordered_map>
 
 void SocketReader::init(int s) {
     sock = s;
@@ -30,6 +34,10 @@ void SocketReader::run() {
         }
         case PacketType::MESSAGE: {
             handler_Message();
+            break;
+        }
+        case PacketType::LIST_USER_IMGS: {
+            handler_ListUserImgs();
             break;
         }
         default:
@@ -69,4 +77,31 @@ void SocketReader::handler_Message() {
     MessageInfo msg;
     recv_message(sock, msg);
     emit newMessage(msg);
+}
+
+void SocketReader::handler_ListUserImgs() {
+    std::unordered_map<uint32_t, QPixmap> userImageMap;
+
+    uint32_t n_users = 0;
+    recv_uint(sock, n_users);
+    for (uint32_t i = 0; i < n_users; i++) {
+        uint32_t uid;
+        recv_uint(sock, uid);
+
+        uint64_t size;
+        recv_uint64(sock, size);
+
+        std::vector<char> buffer;
+        buffer.reserve(size);
+
+        PacketType p;
+        recv_packet(sock, p, buffer);
+
+        QPixmap pixmap;
+
+        pixmap.loadFromData(reinterpret_cast<const uchar *>(buffer.data()), buffer.size(), "PNG"); // e.g., "PNG", "JPEG", "BMP"
+        userImageMap[uid] = pixmap;
+    }
+
+    emit usersImgsReady(userImageMap);
 }

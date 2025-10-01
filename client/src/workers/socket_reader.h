@@ -12,6 +12,7 @@ class SocketReader : public QObject {
     void channelsReady(const std::vector<ChannelInfo> &channels);
     void usersReady(const std::vector<UserInfo> &users);
     void newMessage(const MessageInfo &msg);
+    void usersImgsReady(const std::unordered_map<uint32_t, QPixmap> &m);
 
   private:
     int sock;
@@ -20,4 +21,5 @@ class SocketReader : public QObject {
     void handler_ListChannels();
     void handler_ListUsers();
     void handler_Message();
+    void handler_ListUserImgs();
 };

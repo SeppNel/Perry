@@ -2,6 +2,8 @@
 #include "common_data.h"
 #include <cstdint>
 #include <cstring>
+#include <fstream>
+#include <iostream>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -123,6 +125,32 @@ bool send_message(int sock, const MessageInfo &m) {
     return true;
 }
 
+bool send_image(int socket, const std::string &filename) {
+    // Open file in binary mode and at the end
+    std::ifstream file(filename, std::ios::binary | std::ios::ate);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open file\n";
+        return false;
+    }
+
+    // Get file size
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    uint64_t fileSize = static_cast<uint64_t>(size);
+
+    // Read file into buffer
+    std::vector<char> buffer(size);
+    if (!file.read(buffer.data(), size)) {
+        std::cerr << "Failed to read file\n";
+        return false;
+    }
+
+    send_packet(socket, PacketType::UINT64, fileSize); // Send file size first (as 64-bit integer)
+    send_packet(socket, PacketType::BUFFER, buffer);   // Send image
+
+    return true;
+}
+
 bool recv_packet(int sock, PacketType &type, std::vector<char> &data) {
     PacketHeader header;
     if (!recv_all(sock, &header, sizeof(header))) {
@@ -199,6 +227,21 @@ bool recv_uint(int sock, uint32_t &out) {
     }
 
     std::memcpy(&out, buffer.data(), sizeof(uint32_t));
+    return true;
+}
+
+bool recv_uint64(int sock, uint64_t &out) {
+    PacketType type;
+    std::vector<char> buffer;
+    if (!recv_packet(sock, type, buffer)) {
+        return false;
+    }
+
+    if (type != PacketType::UINT64 || buffer.empty()) {
+        return false;
+    }
+
+    std::memcpy(&out, buffer.data(), sizeof(uint64_t));
     return true;
 }
 

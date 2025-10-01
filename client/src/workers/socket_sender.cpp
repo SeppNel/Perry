@@ -1,4 +1,5 @@
 #include "socket_sender.h"
+#include "packets.h"
 #include <QTimer>
 #include <cstdint>
 #include <iostream>
@@ -31,11 +32,14 @@ void SocketSender::run() {
     }
     case PacketType::LIST_MESSAGES: {
         handleListMessages(header);
-        send_packet(sock, PacketType::LIST_USERS, NULL, 0);
         break;
     }
     case PacketType::MESSAGE: {
         handleMessage(header);
+        break;
+    }
+    case PacketType::LIST_USER_IMGS: {
+        send_packet(sock, PacketType::LIST_USER_IMGS, NULL, 0);
         break;
     }
     default:
