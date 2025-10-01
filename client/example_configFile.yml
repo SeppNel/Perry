@@ -1,0 +1,6 @@
+---
+username: 'test'
+password: 'test'
+server_addr: '127.0.0.1'
+server_port_text: 9020
+server_port_voice: 8888
