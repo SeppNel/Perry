@@ -1,6 +1,7 @@
 #include "DbManager.h"
 #include "audio_server.h"
 #include "common_data.h"
+#include "config.h"
 #include "packets.h"
 #include "utils.h"
 #include <arpa/inet.h>
@@ -20,10 +21,9 @@
 
 namespace fs = std::filesystem;
 
-#define PORT 9020
 #define BCRYPT_ROUNDS 12
 
-static std::string img_store_path = "./images/";
+std::string img_store_path;
 
 std::vector<Client_t> clients;
 std::mutex clients_mutex;
@@ -230,6 +230,10 @@ void handle_client(int sock) {
 }
 
 int main() {
+    Config::init("./configFile.yml");
+    DbManager::init();
+    img_store_path = Config::storage_path + "images/";
+
     int server_main_socket;
     int client_new_socket;
     sockaddr_in address;
@@ -245,7 +249,7 @@ int main() {
 
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(PORT);
+    address.sin_port = htons(Config::port_text);
 
     if (bind(server_main_socket, (struct sockaddr *)&address, sizeof(address)) == -1) {
         std::cout << "Socket creation error" << std::endl;
@@ -259,8 +263,7 @@ int main() {
 
     std::thread audio_server(AudioServer::run);
 
-    std::cout << "Server started on port " << PORT << std::endl;
-
+    std::cout << "Server started on port " << Config::port_text << std::endl;
     while (true) {
         client_new_socket = accept(server_main_socket, (struct sockaddr *)&address, (socklen_t *)&addrlen);
         std::thread(handle_client, client_new_socket).detach();

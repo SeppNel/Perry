@@ -4,7 +4,7 @@
 #include <vector>
 
 namespace DbManager {
-
+void init();
 uint32_t getUserId(const std::string &username);
 std::string getUserPassword(const uint32_t id);
 std::vector<ChannelInfo> getChannels();

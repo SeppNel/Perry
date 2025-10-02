@@ -1,4 +1,5 @@
 #include "audio_server.h"
+#include "config.h"
 #include "packets.h"
 #include <arpa/inet.h>
 #include <atomic>
@@ -17,7 +18,6 @@
 
 // Configuration
 #define CHUNK_SIZE 240 // 5ms at 48kHz
-#define PORT 8888
 
 std::atomic<bool> AudioServer::running{true};
 
@@ -91,7 +91,7 @@ void AudioServer::run() {
     struct sockaddr_in server_addr = {};
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(PORT);
+    server_addr.sin_port = htons(Config::port_voice);
 
     if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         perror("Bind failed");
@@ -103,7 +103,7 @@ void AudioServer::run() {
         return;
     }
 
-    std::cout << "Audio server listening on port " << PORT << "\n";
+    std::cout << "Audio server listening on port " << Config::port_voice << "\n";
     std::cout << "Waiting for client connection...\n";
 
     while (running.load()) {

@@ -25,6 +25,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(bcrypt)
 
+# Fetch Yaml-cpp
+FetchContent_Declare(
+  yaml-cpp
+  GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+  GIT_TAG 0.8.0 # Can be a tag (yaml-cpp-x.x.x), a commit hash, or a branch name (master)
+)
+FetchContent_MakeAvailable(yaml-cpp)
+
 # Find system ODBC library
 find_package(ODBC REQUIRED)
 
@@ -37,6 +45,8 @@ add_executable(perry_server
   src/main.cpp
   src/utils.h
   src/utils.cpp
+  src/config.h
+  src/config.cpp
   src/audio_server.cpp
   src/audio_server.h
   ../common/common_data.h
@@ -47,6 +57,5 @@ add_executable(perry_server
 )
 
 # Link nanodbc and ODBC
-target_link_libraries(perry_server PRIVATE nanodbc bcrypt ${ODBC_LIBRARIES})
-target_include_directories(perry_server PRIVATE ../common lib ${ODBC_INCLUDE_DIRS})
-target_link_libraries(perry_server PRIVATE Threads::Threads)
+target_link_libraries(perry_server PRIVATE nanodbc bcrypt ${ODBC_LIBRARIES} Threads::Threads yaml-cpp::yaml-cpp)
+target_include_directories(perry_server PRIVATE ../common lib src ${ODBC_INCLUDE_DIRS})

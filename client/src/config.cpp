@@ -6,8 +6,8 @@ namespace Config {
 std::string username;
 std::string password;
 std::string server_addr;
-uint server_port_text;
-uint server_port_voice;
+uint server_port_text = 7065;
+uint server_port_voice = 7066;
 std::string avatar_path;
 
 void init(const std::string &configPath) {

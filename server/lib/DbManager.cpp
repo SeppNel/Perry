@@ -1,15 +1,24 @@
 #include "DbManager.h"
 #include "common_data.h"
+#include "config.h"
 #include <cstdint>
 #include <iostream>
 #include <nanodbc/nanodbc.h>
 #include <string>
 #include <vector>
 
-const char *connstr = NANODBC_TEXT("Driver={MySQL};Server=127.0.0.1;Database=perrydb;Uid=perryuser;Pwd=perrypass;big_packets=1");
-nanodbc::connection conn(connstr);
+nanodbc::connection conn;
 
 namespace DbManager {
+
+void init() {
+    std::string cs = "Driver={MySQL};Server=" + Config::db_addr + ";Database=" + Config::db_database + ";Uid=" +
+                     Config::db_user + ";Pwd=" + Config::db_password + ";big_packets=1";
+
+    const char *connstr = NANODBC_TEXT(cs.c_str());
+    conn = nanodbc::connection(connstr);
+}
+
 uint32_t getUserId(const std::string &username) {
     try {
         nanodbc::statement statement(conn);
