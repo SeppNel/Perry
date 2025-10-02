@@ -106,14 +106,15 @@ int main(int argc, char **argv) {
     }
     std::cout << "Login succesfull" << std::endl;
 
+    // Send User Avatar to server
     send_packet(sock, PacketType::USER_IMAGE, NULL, 0);
-    send_image(sock, "./avatar.png");
+    send_image(sock, Config::avatar_path);
 
     QApplication app(argc, argv);
 
     MainWindow window;
     startWorkers(sock, window);
-    window.init(sock);
+    window.init();
 
     window.show();
 

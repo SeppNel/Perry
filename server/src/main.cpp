@@ -230,7 +230,6 @@ void handle_client(int sock) {
 }
 
 int main() {
-
     int server_main_socket;
     int client_new_socket;
     sockaddr_in address;

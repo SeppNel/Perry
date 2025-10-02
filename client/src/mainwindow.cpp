@@ -12,7 +12,6 @@
 #include <QThread>
 #include <QTimeZone>
 #include <QTimer>
-#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -25,9 +24,7 @@ MainWindow::~MainWindow() {
     delete ui;
 }
 
-void MainWindow::init(int sock) {
-    this->sock = sock;
-
+void MainWindow::init() {
     // Connect Main UI stuff
     connect(ui->lineEdit, &QLineEdit::returnPressed, this, &MainWindow::onReturnPressed);
     connect(ui->channelsList, &QListWidget::itemPressed, this, &MainWindow::switchChannel);
