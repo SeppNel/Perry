@@ -147,7 +147,7 @@ void MainWindow::startVoiceThread() {
     vi->moveToThread(thread);
 
     QObject::connect(thread, &QThread::started, [vi, this]() {
-        vi->init("127.0.0.1", currentVoiceChannel);
+        vi->init(Config::server_addr, Config::server_port_voice, currentVoiceChannel);
     });
 
     QObject::connect(this, &MainWindow::stopVC, vi, &VoiceChat::stop);

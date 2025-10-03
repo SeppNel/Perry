@@ -15,7 +15,6 @@
 // Audio configuration (must match server)
 #define SAMPLE_RATE 48000
 #define CHUNK_SIZE 240 // 5ms at 48kHz
-#define VC_PORT 8888
 
 // Ring buffer settings (SPSC)
 #define RING_MS 100
@@ -44,7 +43,7 @@ static uint32_t channel;
 
 void run();
 
-void VoiceChat::init(std::string ip, uint32_t ch) {
+void VoiceChat::init(std::string ip, uint port, uint32_t ch) {
     channel = ch;
 
     // Voice socket
@@ -58,7 +57,7 @@ void VoiceChat::init(std::string ip, uint32_t ch) {
 
     struct sockaddr_in srv;
     srv.sin_family = AF_INET;
-    srv.sin_port = htons(VC_PORT);
+    srv.sin_port = htons(port);
     inet_pton(AF_INET, ip.c_str(), &srv.sin_addr);
 
     if (::connect(vc_socket, (struct sockaddr *)&srv, sizeof(srv)) < 0) {

@@ -8,7 +8,7 @@ class VoiceChat : public QObject {
     Q_OBJECT
 
   public:
-    void init(std::string ip, uint32_t ch);
+    void init(std::string ip, uint port, uint32_t ch);
 
   public slots:
     void stop();
