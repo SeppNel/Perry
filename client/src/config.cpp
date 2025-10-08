@@ -1,5 +1,5 @@
 #include "config.h"
-#include <iostream>
+#include "logger.h"
 #include <yaml-cpp/yaml.h>
 
 namespace Config {
@@ -10,11 +10,11 @@ uint server_port_text = 7065;
 uint server_port_voice = 7066;
 std::string avatar_path;
 
-void init(const std::string &configPath) {
-    readConfig(configPath);
+bool init(const std::string &configPath) {
+    return readConfig(configPath);
 }
 
-void readConfig(const std::string &configPath) {
+bool readConfig(const std::string &configPath) {
     try {
         YAML::Node configFile = YAML::LoadFile(configPath);
 
@@ -24,10 +24,13 @@ void readConfig(const std::string &configPath) {
         server_port_text = configFile["server_port_text"].as<uint>();
         server_port_voice = configFile["server_port_voice"].as<uint>();
         avatar_path = configFile["avatar_path"].as<std::string>();
+        return true;
     } catch (YAML::BadFile) {
-        std::cerr << "Could not load config file\n";
+        LOG_ERROR("Corrupted file");
+        return false;
     } catch (...) {
-        std::cerr << "Something went wrong with the config file\n";
+        LOG_ERROR("Something went wrong with the config file");
+        return false;
     }
 }
 } // namespace Config

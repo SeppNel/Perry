@@ -1,9 +1,9 @@
 // socket_reader.cpp
 #include "socket_reader.h"
 #include "common_data.h"
+#include "logger.h"
 #include "packets.h"
 #include <cstdint>
-#include <iostream>
 #include <qpixmap.h>
 #include <unordered_map>
 
@@ -18,7 +18,7 @@ void SocketReader::run() {
         buffer.clear();
         PacketType pType;
         if (!recv_packet(sock, pType, buffer)) {
-            std::cout << "Socket closed or error\n";
+            LOG_INFO("Socket closed or error");
             break;
         }
 
@@ -40,7 +40,7 @@ void SocketReader::run() {
             break;
         }
         default:
-            std::cout << "Unknown packet type\n";
+            LOG_WARNING("Unknown packet type");
             break;
         }
     }

@@ -1,4 +1,5 @@
 #include "config.h"
+#include "logger.h"
 #include "mainwindow.h"
 #include "packets.h"
 #include "workers/periodic_10.h"
@@ -8,10 +9,13 @@
 #include <QThread>
 #include <arpa/inet.h>
 #include <cstdint>
-#include <iostream>
+#include <cstdlib>
+#include <filesystem>
 #include <netinet/tcp.h>
 #include <string>
 #include <unistd.h>
+
+namespace fs = std::filesystem;
 
 void startWorkers(int sock, MainWindow &mainwindow) {
     // Prepare periodic background thread
@@ -68,22 +72,26 @@ bool login(int sock) {
     std::string passwd = Config::password;
     uint8_t username_len = username.size();
 
-    std::cout << "Sending username" << std::endl;
+    LOG_DEBUG("Sending username");
     send_string(sock, username);
-    std::cout << "Sending passwd" << std::endl;
+    LOG_DEBUG("Sending passwd");
     send_string(sock, passwd);
 
     uint8_t result; // Allocate a receive buffer
 
     if (!recv_code(sock, result)) {
-        std::cout << "Error from server" << std::endl;
+        LOG_ERROR("Error from server");
         return false;
     }
     return result;
 }
 
 int main(int argc, char **argv) {
-    Config::init("configFile.yml");
+    Logger::init("perry.log", LogLevel::DEBUG, true, false);
+    if (!Config::init("configFile.yml")) {
+        LOG_ERROR("Could not read config file");
+        return 1;
+    }
 
     int sock = 0;
     struct sockaddr_in serv_addr;
@@ -95,20 +103,22 @@ int main(int argc, char **argv) {
     inet_pton(AF_INET, Config::server_addr.c_str(), &serv_addr.sin_addr);
 
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1) {
-        std::cout << "Could not connect to server" << std::endl;
+        LOG_ERROR("Could not connect to server");
         return EXIT_FAILURE;
     }
 
-    std::cout << "Attempting login" << std::endl;
+    LOG_DEBUG("Attempting login");
     if (!login(sock)) {
-        std::cout << "Could not login" << std::endl;
-        return EXIT_FAILURE;
+        LOG_ERROR("Could not login to server");
+        return 1;
     }
-    std::cout << "Login succesfull" << std::endl;
+    LOG_DEBUG("Login successful");
 
     // Send User Avatar to server
-    send_packet(sock, PacketType::USER_IMAGE, NULL, 0);
-    send_image(sock, Config::avatar_path);
+    if (fs::exists(Config::avatar_path)) {
+        send_packet(sock, PacketType::USER_IMAGE, NULL, 0);
+        send_image(sock, Config::avatar_path);
+    }
 
     QApplication app(argc, argv);
 

@@ -38,6 +38,8 @@ qt_add_executable(perry_client
   ../common/common_data.h
   ../common/packets.cpp
   ../common/packets.h
+  ../common/logger.h
+  ../common/logger.cpp
   src/mainwindow.cpp
   src/mainwindow.h
   src/mainwindow.ui

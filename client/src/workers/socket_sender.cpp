@@ -1,8 +1,8 @@
 #include "socket_sender.h"
+#include "logger.h"
 #include "packets.h"
 #include <QTimer>
 #include <cstdint>
-#include <iostream>
 #include <string>
 
 #define FIFO_FREQ_MS 10
@@ -43,7 +43,7 @@ void SocketSender::run() {
         break;
     }
     default:
-        std::cout << "Packet Type not recognized" << std::endl;
+        LOG_WARNING("Packet Type not recognized");
     }
 
     header_fifo.pop();
@@ -58,11 +58,11 @@ void SocketSender::enqueuePacket(const PacketHeader &header, const std::vector<c
 
 void SocketSender::handleMessage(const PacketHeader &header) {
     if (header.length < sizeof(uint32_t)) {
-        std::cerr << "invalid header.length < sizeof(uint32_t)\n";
+        LOG_ERROR("invalid header.length < sizeof(uint32_t)");
         return;
     }
     if (payload_fifo.size() < header.length) {
-        std::cerr << "not enough payload bytes yet\n";
+        LOG_ERROR("not enough payload bytes yet");
         return;
     }
 
@@ -94,11 +94,11 @@ void SocketSender::handleMessage(const PacketHeader &header) {
 
 void SocketSender::handleListMessages(const PacketHeader &header) {
     if (header.length < sizeof(uint32_t)) {
-        std::cerr << "invalid header.length < sizeof(uint32_t)\n";
+        LOG_ERROR("invalid header.length < sizeof(uint32_t)");
         return;
     }
     if (payload_fifo.size() < header.length) {
-        std::cerr << "not enough payload bytes yet\n";
+        LOG_ERROR("not enough payload bytes yet");
         return;
     }
 

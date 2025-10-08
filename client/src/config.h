@@ -9,6 +9,6 @@ extern uint server_port_text;
 extern uint server_port_voice;
 extern std::string avatar_path;
 
-void init(const std::string &configPath);
-void readConfig(const std::string &configPath);
+bool init(const std::string &configPath);
+bool readConfig(const std::string &configPath);
 }; // namespace Config
