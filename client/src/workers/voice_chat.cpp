@@ -36,8 +36,9 @@ static float *ring_buffer_output = nullptr;
 static std::atomic<int> write_index_output{0};
 static std::atomic<int> read_index_output{0};
 
+static int underflow_count = 0;
+
 static std::atomic<bool> running{true};
-static std::atomic<bool> connected{false};
 static int vc_socket = -1;
 static uint32_t channel;
 
@@ -61,23 +62,33 @@ void VoiceChat::init(std::string ip, uint port, uint32_t ch) {
     inet_pton(AF_INET, ip.c_str(), &srv.sin_addr);
 
     if (::connect(vc_socket, (struct sockaddr *)&srv, sizeof(srv)) < 0) {
-        perror("connect");
+        perror("VC connect");
         close(vc_socket);
+        vc_socket = -1;
         return;
     }
 
     running.store(true);
-    connected.store(true);
-
     main = std::thread(run);
 }
 
 void VoiceChat::stop() {
     running.store(false);
+    shutdown(vc_socket, SHUT_RDWR);
+
+    // Wake up soundio to break out of wait_events
     if (soundio) {
         soundio_wakeup(soundio);
     }
-    main.join();
+
+    // Wait for main thread to finish
+    if (main.joinable()) {
+        main.join();
+    }
+
+    std::cout << "VC stopped fully" << std::endl;
+
+    emit closed();
     QThread::currentThread()->quit();
 }
 
@@ -115,20 +126,28 @@ static void produce_samples(const float *samples, int nframes) {
 
 // Audio input callback
 static void read_callback(struct SoundIoInStream *instream, int frame_count_min, int frame_count_max) {
+    // Check if we're shutting down
+    if (!running.load() || !ring_buffer_input) {
+        return;
+    }
+
     struct SoundIoChannelArea *areas;
     int err;
     int frames_left = frame_count_min;
 
-    // std::cout << "frames_left = " << frames_left << std::endl;
     while (frames_left > 0) {
         int frame_count = frames_left;
         err = soundio_instream_begin_read(instream, &areas, &frame_count);
         if (err) {
-            fprintf(stderr, "Begin read error: %s\n", soundio_strerror(err));
-            exit(1);
+            std::cerr << "VC | Begin read error: " << soundio_strerror(err) << std::endl;
+            running.store(false);
+            return;
         }
-        if (frame_count == 0)
+
+        // If no frames, we're done
+        if (frame_count == 0) {
             break;
+        }
 
         int processed = 0;
         // If device gives us areas == NULL, fill with silence
@@ -153,8 +172,9 @@ static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
 
         err = soundio_instream_end_read(instream);
         if (err) {
-            fprintf(stderr, "End read error: %s\n", soundio_strerror(err));
-            exit(1);
+            std::cerr << "VC | End read error: " << soundio_strerror(err) << std::endl;
+            running.store(false);
+            return;
         }
         frames_left -= frame_count;
     }
@@ -162,21 +182,28 @@ static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
 
 // Audio output callback
 static void write_callback(struct SoundIoOutStream *outstream, int frame_count_min, int frame_count_max) {
+    // Check if we're shutting down
+    if (!running.load() || !ring_buffer_output) {
+        return;
+    }
+
     struct SoundIoChannelArea *areas;
     int err;
 
     int frames_left = frame_count_min;
-
     while (frames_left > 0) {
         int frame_count = frames_left;
         err = soundio_outstream_begin_write(outstream, &areas, &frame_count);
         if (err) {
-            fprintf(stderr, "Begin write error: %s\n", soundio_strerror(err));
-            exit(1);
+            std::cerr << "VC | Begin write error: " << soundio_strerror(err) << std::endl;
+            running.store(false);
+            return;
         }
 
-        if (!frame_count)
+        // If no frames, we're done
+        if (frame_count == 0) {
             break;
+        }
 
         int current_read = read_index_output.load(std::memory_order_relaxed);
         int fill_count = ring_fill_count(write_index_output, read_index_output);
@@ -203,9 +230,11 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
 
         read_index_output.store(current_read, std::memory_order_release);
 
-        if ((err = soundio_outstream_end_write(outstream))) {
-            fprintf(stderr, "End write error: %s\n", soundio_strerror(err));
-            exit(1);
+        err = soundio_outstream_end_write(outstream);
+        if (err) {
+            std::cerr << "VC | End write error: " << soundio_strerror(err) << std::endl;
+            running.store(false);
+            return;
         }
 
         frames_left -= frame_count;
@@ -213,22 +242,26 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
 }
 
 static void underflow_callback(struct SoundIoOutStream *outstream) {
-    static int count = 0;
-    fprintf(stderr, "Underflow %d (network latency too high)\n", ++count);
+    std::cerr << "VC | Underflow " << ++underflow_count << " (network latency too high)" << std::endl;
 }
 
 void network_send_thread() {
     send_packet(vc_socket, PacketType::UINT, channel);
 
-    printf("Connected to server, streaming audio...\n");
+    std::cout << "Connected to server, streaming audio...\n";
 
     std::vector<float> sendbuf(CHUNK_SIZE);
-    while (running.load() && connected.load()) {
+    while (running.load()) {
         // If not enough samples, sleep a tiny bit
         int available = ring_fill_count(write_index_input, read_index_input);
-        while (available < CHUNK_SIZE) {
+        while (available < CHUNK_SIZE && running.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             available = ring_fill_count(write_index_input, read_index_input);
+        }
+
+        // Check again after the wait loop
+        if (!running.load()) {
+            break;
         }
 
         int r = read_index_input.load(std::memory_order_relaxed);
@@ -241,29 +274,26 @@ void network_send_thread() {
         // sendbuf ready: send all bytes
         if (!send_all(vc_socket, sendbuf.data(), CHUNK_SIZE * sizeof(float))) {
             std::cerr << "Error sending voice" << std::endl;
-            connected.store(false);
+            running.store(false);
         }
 
-        // yield thread
-        std::this_thread::sleep_for(std::chrono::milliseconds(0));
+        std::this_thread::yield();
     }
 
-    connected.store(false);
-    printf("Disconnected from server\n");
-
-    std::cout << "[Both] Network send exited" << std::endl;
+    std::cout << "Network send exited" << std::endl;
 }
 
 void network_recv_thread() {
     std::vector<float> chunk(CHUNK_SIZE);
 
-    printf("VC connected, receiving audio...\n");
+    std::cout << "VC | Connected, receiving audio...\n";
 
     int current_write = write_index_output.load(std::memory_order_relaxed);
     while (running.load()) {
         bool got = recv_all(vc_socket, chunk.data(), CHUNK_SIZE * sizeof(float));
         if (!got) {
-            printf("VC disconnected or read error\n");
+            std::cerr << "VC | Disconnected or read error\n";
+            running.store(false);
             break;
         }
 
@@ -283,29 +313,30 @@ void network_recv_thread() {
         write_index_output.store(current_write, std::memory_order_release);
     }
 
-    std::cout << "[Both] Network recv exited" << std::endl;
+    std::cout << "Network recv exited" << std::endl;
 }
 
 void start_input_stream() {
     // allocate ring buffer
     ring_buffer_input = new float[ring_buffer_size];
     if (!ring_buffer_input) {
-        fprintf(stderr, "Unable to allocate ring buffer\n");
+        std::cerr << "VC | Unable to allocate ring buffer\n";
         return;
     }
     memset(ring_buffer_input, 0, ring_buffer_size * sizeof(float));
 
     int default_input_index = soundio_default_input_device_index(soundio);
     if (default_input_index < 0) {
-        fprintf(stderr, "No input device found\n");
+        std::cerr << "VC | No input device found\n";
+        running.store(false);
         return;
     }
     in_device = soundio_get_input_device(soundio, default_input_index);
     if (!in_device) {
-        fprintf(stderr, "Could not get input device\n");
+        std::cerr << "VC | Could not get input device\n";
+        running.store(false);
         return;
     }
-    printf("Input device: %s\n", in_device->name);
 
     instream = soundio_instream_create(in_device);
     instream->format = SoundIoFormatFloat32NE;
@@ -317,13 +348,15 @@ void start_input_stream() {
 
     int err = soundio_instream_open(instream);
     if (err) {
-        fprintf(stderr, "Unable to open input stream: %s\n", soundio_strerror(err));
+        std::cerr << "VC | Unable to open input stream: " << soundio_strerror(err) << "\n";
+        running.store(false);
         return;
     }
 
     err = soundio_instream_start(instream);
     if (err) {
-        fprintf(stderr, "Unable to start input stream: %s\n", soundio_strerror(err));
+        std::cerr << "VC | Unable to start input stream: " << soundio_strerror(err) << "\n";
+        running.store(false);
         return;
     }
 }
@@ -333,6 +366,7 @@ void start_output_stream() {
     ring_buffer_output = new float[ring_buffer_size];
     if (!ring_buffer_output) {
         std::cerr << "Unable to allocate ring buffer\n";
+        running.store(false);
         return;
     }
     memset(ring_buffer_output, 0, ring_buffer_size * sizeof(float));
@@ -343,11 +377,13 @@ void start_output_stream() {
     int default_output_index = soundio_default_output_device_index(soundio);
     if (default_output_index < 0) {
         std::cerr << "No output device found\n";
+        running.store(false);
         return;
     }
     out_device = soundio_get_output_device(soundio, default_output_index);
     if (!out_device) {
         std::cerr << "Could not get output device\n";
+        running.store(false);
         return;
     }
 
@@ -365,12 +401,14 @@ void start_output_stream() {
     int err = soundio_outstream_open(outstream);
     if (err) {
         std::cerr << "Unable to open output stream: " << soundio_strerror(err) << "\n";
+        running.store(false);
         return;
     }
 
     err = soundio_outstream_start(outstream);
     if (err) {
         std::cerr << "Unable to start output stream: " << soundio_strerror(err) << "\n";
+        running.store(false);
         return;
     }
 }
@@ -385,6 +423,8 @@ void run() {
     int err = soundio_connect(soundio);
     if (err) {
         std::cerr << "Error connecting: " << soundio_strerror(err) << "\n";
+        soundio_destroy(soundio);
+        soundio = nullptr;
         return;
     }
     soundio_flush_events(soundio);
@@ -392,6 +432,12 @@ void run() {
     // Initialize soundio streams
     start_input_stream();
     start_output_stream();
+
+    // Check if initialization failed
+    if (!running.load()) {
+        std::cerr << "VC | Initialization failed\n";
+        return;
+    }
 
     // Start network threads
     std::thread net_send(network_send_thread);
@@ -405,21 +451,22 @@ void run() {
     }
 
     // Cleanup
-    running.store(false);
-    connected.store(false);
-
+    // Wait for network threads to finish
     net_send.join();
     net_recv.join();
 
-    close(vc_socket);
+    // Destroy soundio stuff
     soundio_instream_destroy(instream);
     soundio_outstream_destroy(outstream);
     soundio_device_unref(in_device);
     soundio_device_unref(out_device);
     soundio_destroy(soundio);
+
+    // Clean up ring buffers
     delete[] ring_buffer_input;
     delete[] ring_buffer_output;
 
+    // Reset everything
     soundio = nullptr;
     in_device = nullptr;
     instream = nullptr;
@@ -427,13 +474,12 @@ void run() {
     outstream = nullptr;
     ring_buffer_input = nullptr;
     ring_buffer_output = nullptr;
-
     write_index_input.store(0);
     read_index_input.store(0);
     write_index_output.store(0);
     read_index_output.store(0);
     vc_socket = -1;
+    underflow_count = 0;
 
-    std::cout << "[Both] Main exited" << std::endl;
     return;
 }

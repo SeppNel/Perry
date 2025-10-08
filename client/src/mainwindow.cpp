@@ -13,6 +13,8 @@
 #include <QTimeZone>
 #include <QTimer>
 #include <cstdint>
+#include <qobject.h>
+#include <qthread.h>
 #include <vector>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -140,7 +142,6 @@ void MainWindow::addMessage(const MessageInfo &m) {
 }
 
 void MainWindow::startVoiceThread() {
-    // input thread
     QThread *thread = new QThread();
     VoiceChat *vi = new VoiceChat();
 
@@ -151,11 +152,11 @@ void MainWindow::startVoiceThread() {
     });
 
     QObject::connect(this, &MainWindow::stopVC, vi, &VoiceChat::stop);
+    QObject::connect(vi, &VoiceChat::closed, this, &MainWindow::onVcClosed);
     QObject::connect(thread, &QThread::finished, vi, &QObject::deleteLater);
+    QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
 
     thread->start();
-
-    ui->closeCall->setVisible(true);
 }
 
 void MainWindow::switchChannel(QListWidgetItem *ch) {
@@ -167,9 +168,16 @@ void MainWindow::switchChannel(QListWidgetItem *ch) {
     }
 
     if (is_voice) {
-        emit stopVC();
+        if (currentVoiceChannel != -1) {
+            emit stopVC();
+            while (currentVoiceChannel != -1) {
+                qSleepNonBlocking(1);
+            }
+        }
+
         currentVoiceChannel = ch->data(ChannelListRoles::ID).toInt();
         startVoiceThread();
+        ui->closeCall->setVisible(true);
     } else {
         currentChannel = ch->data(ChannelListRoles::ID).toInt();
         clearLayout(ui->chatAreaLayout);
@@ -189,6 +197,9 @@ void MainWindow::updateUsers(const std::vector<UserInfo> &v) {
 
 void MainWindow::finishCall() {
     emit stopVC();
+}
+
+void MainWindow::onVcClosed() {
     ui->closeCall->setVisible(false);
     currentVoiceChannel = -1;
 }

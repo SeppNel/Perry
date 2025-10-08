@@ -15,4 +15,7 @@ class VoiceChat : public QObject {
 
   private:
     std::thread main;
+
+  signals:
+    void closed();
 };

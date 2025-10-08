@@ -48,6 +48,7 @@ class MainWindow : public QMainWindow {
     void addMessage(const MessageInfo &str);
     void updateUsers(const std::vector<UserInfo> &u);
     void onUsersImgsReady(const std::unordered_map<uint32_t, QPixmap> &m);
+    void onVcClosed();
 
   private slots:
     void onReturnPressed();
