@@ -1,5 +1,5 @@
 #include "utils.h"
-#include <iostream>
+#include "logger.h"
 
 ssize_t findClientIndex(const uint32_t userId, const std::vector<Client_t> &clients) {
     ssize_t index = 0;
@@ -23,7 +23,7 @@ std::vector<fs::path> getFilesByExtension(const std::string &folderPath, const s
             }
         }
     } catch (const fs::filesystem_error &e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+        LOG_ERROR(std::string(e.what()));
     }
 
     return files;

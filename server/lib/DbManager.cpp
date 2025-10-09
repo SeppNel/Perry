@@ -1,8 +1,8 @@
 #include "DbManager.h"
 #include "common_data.h"
 #include "config.h"
+#include "logger.h"
 #include <cstdint>
-#include <iostream>
 #include <nanodbc/nanodbc.h>
 #include <string>
 #include <vector>
@@ -32,7 +32,7 @@ uint32_t getUserId(const std::string &username) {
 
         throw;
     } catch (std::exception &e) {
-        std::cerr << e.what() << std::endl;
+        LOG_ERROR(std::string(e.what()));
         throw e;
     }
 }
@@ -50,7 +50,7 @@ std::string getUserPassword(const uint32_t id) {
 
         throw;
     } catch (std::exception &e) {
-        std::cerr << e.what() << std::endl;
+        LOG_ERROR(std::string(e.what()));
         throw e;
     }
 }
@@ -69,7 +69,7 @@ std::vector<ChannelInfo> getChannels() {
 
         return output;
     } catch (std::exception &e) {
-        std::cerr << e.what() << std::endl;
+        LOG_ERROR(std::string(e.what()));
         throw e;
     }
 }
@@ -87,7 +87,7 @@ std::vector<UserInfo> getUsers() {
 
         return output;
     } catch (std::exception &e) {
-        std::cerr << e.what() << std::endl;
+        LOG_ERROR(std::string(e.what()));
         throw e;
     }
 }
@@ -103,7 +103,7 @@ bool saveMessage(const std::string &msg, const uint32_t channelId, const uint32_
         nanodbc::execute(statement);
         return true;
     } catch (std::exception &e) {
-        std::cerr << e.what() << std::endl;
+        LOG_ERROR(std::string(e.what()));
         return false;
     }
 }
@@ -126,7 +126,7 @@ std::vector<MessageInfo> getMessages(const uint32_t channelId) {
 
         return output;
     } catch (std::exception &e) {
-        std::cerr << e.what() << std::endl;
+        LOG_ERROR(std::string(e.what()));
         throw e;
     }
 }

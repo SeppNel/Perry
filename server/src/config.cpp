@@ -1,5 +1,5 @@
 #include "config.h"
-#include <iostream>
+#include "logger.h"
 #include <yaml-cpp/yaml.h>
 
 namespace Config {
@@ -27,9 +27,9 @@ void readConfig(const std::string &configPath) {
         db_user = configFile["db_user"].as<std::string>();
         db_password = configFile["db_password"].as<std::string>();
     } catch (YAML::BadFile) {
-        std::cerr << "Could not load config file\n";
+        LOG_ERROR("Could not load config file");
     } catch (...) {
-        std::cerr << "Something went wrong with the config file\n";
+        LOG_ERROR("Something went wrong with the config file");
     }
 }
 } // namespace Config

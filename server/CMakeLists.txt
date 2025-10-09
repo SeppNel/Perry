@@ -52,6 +52,8 @@ add_executable(perry_server
   ../common/common_data.h
   ../common/packets.h
   ../common/packets.cpp
+  ../common/logger.h
+  ../common/logger.cpp
   lib/DbManager.cpp
   lib/DbManager.h
 )

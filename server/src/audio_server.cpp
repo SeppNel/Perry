@@ -1,14 +1,15 @@
 #include "audio_server.h"
 #include "config.h"
+#include "logger.h"
 #include "packets.h"
 #include <arpa/inet.h>
 #include <atomic>
 #include <cstdint>
-#include <iostream>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <thread>
@@ -48,12 +49,12 @@ void network_thread(int client_socket) {
 
     std::vector<float> chunk(CHUNK_SIZE);
 
-    printf("Client connected, receiving audio...\n");
+    LOG_INFO("Client connected, receiving audio...");
 
     while (AudioServer::running.load()) {
         bool got = recv_all(client_socket, chunk.data(), CHUNK_SIZE * sizeof(float));
         if (!got) {
-            printf("Client disconnected from voice\n");
+            LOG_INFO("Client disconnected from voice");
             break;
         }
 
@@ -103,8 +104,8 @@ void AudioServer::run() {
         return;
     }
 
-    std::cout << "Audio server listening on port " << Config::port_voice << "\n";
-    std::cout << "Waiting for client connection...\n";
+    LOG_INFO("Audio server listening on port " + std::to_string(Config::port_voice));
+    LOG_INFO("Waiting for client connections...");
 
     while (running.load()) {
         struct sockaddr_in client_addr;
@@ -116,7 +117,7 @@ void AudioServer::run() {
             continue;
         }
 
-        std::cout << "Client connected from " << inet_ntoa(client_addr.sin_addr) << "\n";
+        LOG_INFO("Client connected from " + std::string(inet_ntoa(client_addr.sin_addr)));
 
         // Configure client socket for low latency
         int flag = 1;

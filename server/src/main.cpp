@@ -2,6 +2,7 @@
 #include "audio_server.h"
 #include "common_data.h"
 #include "config.h"
+#include "logger.h"
 #include "packets.h"
 #include "utils.h"
 #include <arpa/inet.h>
@@ -10,7 +11,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <mutex>
 #include <nanodbc/nanodbc.h>
 #include <string>
@@ -31,33 +31,30 @@ std::mutex clients_mutex;
 bool authenticate(const int sock, uint32_t &userId) {
     std::string username;
     if (!recv_string(sock, username)) {
-        std::cout << "Username not received" << std::endl;
+        LOG_ERROR("Username not received");
         return false;
     }
-    std::cout << username << "\n";
 
     try {
         userId = DbManager::getUserId(username);
     } catch (...) {
-        std::cout << "Could not get id from DB" << std::endl;
+        LOG_ERROR("Could not get id from DB");
         return false;
     }
 
     std::string password;
     if (!recv_string(sock, password)) {
-        std::cout << "Password not received" << std::endl;
+        LOG_ERROR("Password not received");
         return false;
     }
-    std::cout << password << "\n";
 
     std::string saved_passwd;
     try {
         saved_passwd = DbManager::getUserPassword(userId);
     } catch (...) {
-        std::cout << "Could not get password from DB" << std::endl;
+        LOG_ERROR("Could not get password from DB");
         return false;
     }
-    std::cout << "SPWD: " << saved_passwd << "\n";
 
     uint8_t result;
     if (bcrypt::validatePassword(password, saved_passwd)) {
@@ -81,7 +78,7 @@ void handle_client(int sock) {
     uint32_t userId;
     if (!authenticate(sock, userId)) {
         close(sock);
-        std::cout << "Could not authenticate" << std::endl;
+        LOG_WARNING("Could not authenticate user");
         return;
     }
 
@@ -90,13 +87,13 @@ void handle_client(int sock) {
         clients.push_back({userId, sock});
     }
 
-    std::cout << "Waiting for messages" << std::endl;
+    LOG_INFO("Waiting for messages");
     std::vector<char> buffer;
     PacketType pType;
     while (true) {
         buffer.clear();
         if (!recv_packet(sock, pType, buffer)) {
-            std::cout << "Message error" << std::endl;
+            LOG_INFO("Client Disconnected");
             break;
         }
 
@@ -106,7 +103,7 @@ void handle_client(int sock) {
             std::string msg;
             recv_uint(sock, channelId);
             recv_string(sock, msg);
-            std::cout << msg << std::endl;
+            LOG_DEBUG(msg);
             DbManager::saveMessage(msg, channelId, userId);
 
             const auto p1 = std::chrono::system_clock::now();
@@ -186,13 +183,13 @@ void handle_client(int sock) {
             for (uint i = 0; i < 8; i++) {
                 if (buffer[i] != png_header[i]) {
                     valid_png = false;
-                    std::cout << "Expected: " << png_header[i] << ", Got: " << buffer[i] << std::endl;
+                    LOG_DEBUG("Expected: " + std::string(png_header) + ", Got: " + std::string(buffer.data(), 8));
                     break;
                 }
             }
 
             if (!valid_png) {
-                std::cerr << "Not a valid PNG\n";
+                LOG_ERROR("Not a valid PNG");
                 break;
             }
 
@@ -202,20 +199,20 @@ void handle_client(int sock) {
                 try {
                     fs::create_directories(save_path.parent_path());
                 } catch (const fs::filesystem_error &e) {
-                    std::cerr << "Failed to create directories: " << e.what() << "\n";
+                    LOG_ERROR("Failed to create directories: " + std::string(e.what()));
                     break;
                 }
             }
 
             std::ofstream outFile(save_path, std::ios::binary);
             if (!outFile.write(buffer.data(), size)) {
-                std::cerr << "Failed to write file\n";
+                LOG_ERROR("Failed to write file");
             }
 
             break;
         }
         default: {
-            std::cout << "Unrecognized packet type" << std::endl;
+            LOG_WARNING("Unrecognized packet type");
             break;
         }
         }
@@ -230,6 +227,7 @@ void handle_client(int sock) {
 }
 
 int main() {
+    Logger::init("perry.log", LogLevel::DEBUG, true, false);
     Config::init("./configFile.yml");
     DbManager::init();
     img_store_path = Config::storage_path + "images/";
@@ -242,7 +240,7 @@ int main() {
 
     server_main_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_main_socket == -1) {
-        std::cout << "Socket creation error" << std::endl;
+        LOG_CRITICAL("Socket creation error");
         return -1;
     }
     setsockopt(server_main_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -252,18 +250,18 @@ int main() {
     address.sin_port = htons(Config::port_text);
 
     if (bind(server_main_socket, (struct sockaddr *)&address, sizeof(address)) == -1) {
-        std::cout << "Socket creation error" << std::endl;
+        LOG_CRITICAL("Socket creation error");
         return -1;
     }
 
     if (listen(server_main_socket, 5) == -1) {
-        std::cout << "Socket creation error" << std::endl;
+        LOG_CRITICAL("Socket creation error");
         return -1;
     }
 
     std::thread audio_server(AudioServer::run);
 
-    std::cout << "Server started on port " << Config::port_text << std::endl;
+    LOG_INFO("Server started on port " + std::to_string(Config::port_text));
     while (true) {
         client_new_socket = accept(server_main_socket, (struct sockaddr *)&address, (socklen_t *)&addrlen);
         std::thread(handle_client, client_new_socket).detach();

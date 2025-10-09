@@ -1,9 +1,9 @@
 #include "packets.h"
 #include "common_data.h"
+#include "logger.h"
 #include <cstdint>
 #include <cstring>
 #include <fstream>
-#include <iostream>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -129,7 +129,7 @@ bool send_image(int socket, const std::string &filename) {
     // Open file in binary mode and at the end
     std::ifstream file(filename, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
-        std::cerr << "Failed to open file\n";
+        LOG_ERROR("Failed to open file");
         return false;
     }
 
@@ -141,7 +141,7 @@ bool send_image(int socket, const std::string &filename) {
     // Read file into buffer
     std::vector<char> buffer(size);
     if (!file.read(buffer.data(), size)) {
-        std::cerr << "Failed to read file\n";
+        LOG_ERROR("Failed to read file");
         return false;
     }
 
