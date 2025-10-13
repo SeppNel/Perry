@@ -1,6 +1,13 @@
 #pragma once
 #include <string>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#ifdef ERROR
+#undef ERROR
+#endif
+#endif
+
 enum class LogLevel {
     DEBUG = 0,
     INFO = 1,

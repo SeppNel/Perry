@@ -1,4 +1,5 @@
 #include "config.h"
+#include "crossSockets.h"
 #include "logger.h"
 #include "mainwindow.h"
 #include "packets.h"
@@ -6,12 +7,11 @@
 #include "workers/socket_reader.h"
 #include "workers/socket_sender.h"
 #include <QApplication>
+#include <QStyleFactory>
 #include <QThread>
-#include <arpa/inet.h>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
-#include <netinet/tcp.h>
 #include <string>
 #include <unistd.h>
 
@@ -93,6 +93,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    crossSockets::initializeSockets();
+
     int sock = 0;
     struct sockaddr_in serv_addr;
 
@@ -121,6 +123,93 @@ int main(int argc, char **argv) {
     }
 
     QApplication app(argc, argv);
+
+    // Force Fusion style for consistent modern UI
+    QApplication::setStyle(QStyleFactory::create("Fusion"));
+
+    // Optional: dark palette
+    QPalette darkPalette;
+    darkPalette.setColor(QPalette::Window, QColor(32, 35, 38));
+    darkPalette.setColor(QPalette::WindowText, Qt::white);
+    darkPalette.setColor(QPalette::Base, QColor(20, 22, 24));
+    darkPalette.setColor(QPalette::AlternateBase, QColor(53, 53, 53));
+    darkPalette.setColor(QPalette::ToolTipBase, Qt::white);
+    darkPalette.setColor(QPalette::ToolTipText, Qt::white);
+    darkPalette.setColor(QPalette::Text, Qt::white);
+    darkPalette.setColor(QPalette::Button, QColor(53, 53, 53));
+    darkPalette.setColor(QPalette::ButtonText, Qt::white);
+    darkPalette.setColor(QPalette::BrightText, Qt::red);
+    darkPalette.setColor(QPalette::Highlight, QColor(142, 45, 197).lighter());
+    darkPalette.setColor(QPalette::HighlightedText, Qt::black);
+    app.setPalette(darkPalette);
+
+    app.setStyleSheet(R"(
+    QMainWindow > QWidget {
+ background-color: rgb(32, 35, 38);
+ border-radius: 0px;
+}
+
+
+#membersList, #mainArea > *, #widget > * {
+    border: 1px solid rgba(75, 75, 75, 1);
+}
+
+#membersList:focus, #mainArea > *:focus, #widget > *:focus {
+    border: 1px solid rgb(169, 0, 211);
+}
+
+QWidget {
+	background-color: rgb(20, 22, 24);
+    border-radius: 5px;
+}
+
+QWidget:focus {
+    border-radius: 5px;
+    border: 1px solid rgb(169, 0, 211);
+}
+
+#userBar{
+background-color: rgb(20, 22, 24);
+border-radius: 5px;
+border: 1px solid #444444;
+}
+
+
+QScrollBar:vertical {
+    background-color: rgba(75, 75, 75, 1); /* track color */
+    width: 8px;               /* scrollbar width */
+    margin: 0px;               /* space at top/bottom for arrows */
+    border-radius: 5px;
+}
+
+/* Handle (the draggable part) */
+QScrollBar::handle:vertical {
+    background-color: rgba(112, 0, 139, 1); 
+    min-height: 10px;
+    border-radius: 5px;
+}
+
+/* Hover effect */
+QScrollBar::handle:vertical:hover {
+    background-color: rgb(169, 0, 211);
+}
+
+/* Top/Bottom buttons (optional) */
+QScrollBar::sub-line:vertical,
+QScrollBar::add-line:vertical {
+    height: 0px; /* hide buttons */
+    subcontrol-origin: margin;
+}
+
+/* Arrows (optional, hidden here) */
+QScrollBar::up-arrow:vertical,
+QScrollBar::down-arrow:vertical {
+    width: 0; 
+    height: 0;
+}
+
+
+)");
 
     MainWindow window;
     startWorkers(sock, window);

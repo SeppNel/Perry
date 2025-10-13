@@ -5,17 +5,6 @@ set(CMAKE_CXX_STANDARD 20)
 
 include(FetchContent)
 
-# Fetch libsoundio
-set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(BUILD_EXAMPLE_PROGRAMS OFF CACHE BOOL "" FORCE)
-
-FetchContent_Declare(
-    libsoundio
-    GIT_REPOSITORY https://github.com/andrewrk/libsoundio
-    GIT_TAG        2.0.1-7  # replace with the latest tag you want
-)
-FetchContent_MakeAvailable(libsoundio)
-
 # Fetch Yaml-cpp
 FetchContent_Declare(
   yaml-cpp
@@ -23,6 +12,9 @@ FetchContent_Declare(
   GIT_TAG 0.8.0 # Can be a tag (yaml-cpp-x.x.x), a commit hash, or a branch name (master)
 )
 FetchContent_MakeAvailable(yaml-cpp)
+
+# Local libsoundio
+add_subdirectory(lib/libsoundio)
 
 # QT6
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
@@ -38,6 +30,8 @@ qt_add_executable(perry_client
   ../common/common_data.h
   ../common/packets.cpp
   ../common/packets.h
+  ../common/crossSockets.cpp
+  ../common/crossSockets.h
   ../common/logger.h
   ../common/logger.cpp
   src/mainwindow.cpp
@@ -62,3 +56,7 @@ qt_add_executable(perry_client
 #Link
 target_link_libraries(perry_client PRIVATE Threads::Threads Qt6::Widgets libsoundio_shared yaml-cpp::yaml-cpp)
 target_include_directories(perry_client PRIVATE ../common ${libsoundio_SOURCE_DIR})
+
+if (WIN32)
+    target_link_libraries(perry_client PRIVATE ws2_32)
+endif()

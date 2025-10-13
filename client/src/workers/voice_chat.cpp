@@ -1,15 +1,12 @@
 #include "voice_chat.h"
+#include "crossSockets.h"
 #include "logger.h"
 #include "packets.h"
 #include <QThread>
-#include <arpa/inet.h>
 #include <atomic>
 #include <chrono>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
 #include <soundio/soundio.h>
 #include <string>
-#include <sys/socket.h>
 #include <unistd.h>
 #include <vector>
 
@@ -51,11 +48,11 @@ void VoiceChat::init(std::string ip, uint port, uint32_t ch) {
     // Voice socket
     vc_socket = socket(AF_INET, SOCK_STREAM, 0);
     int flag = 1;
-    setsockopt(vc_socket, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+    crossSockets::setSocketOptions(vc_socket, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
     // enlarge send buffer
     int sndbuf = CHUNK_SIZE * sizeof(float) * 8;
-    setsockopt(vc_socket, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+    crossSockets::setSocketOptions(vc_socket, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
 
     struct sockaddr_in srv;
     srv.sin_family = AF_INET;

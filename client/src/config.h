@@ -1,6 +1,8 @@
 #pragma once
 #include <string>
 
+typedef unsigned int uint;
+
 namespace Config {
 extern std::string username;
 extern std::string password;

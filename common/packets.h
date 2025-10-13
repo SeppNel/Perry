@@ -1,9 +1,8 @@
 #pragma once
 #include "common_data.h"
-#include <arpa/inet.h>
+#include "crossSockets.h"
 #include <cstdint>
 #include <string>
-#include <sys/socket.h>
 #include <vector>
 
 // packet type identifiers

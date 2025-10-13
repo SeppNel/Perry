@@ -37,6 +37,10 @@ void MainWindow::init() {
         bar->setValue(bar->maximum());
     });
 
+    // Style
+    ui->chatArea->viewport()->setAutoFillBackground(true);
+    ui->chatArea->viewport()->setBackgroundRole(QPalette::Base);
+
     // Set Stuff
     ui->chatAreaLayout->setAlignment(Qt::AlignTop);
     ui->closeCall->setVisible(false);

@@ -19,7 +19,11 @@ TODO
 # Building
 ## Client
 ### Linux
-Install the dependencies and in the client folder run:
+#### Dependencies:
+- Fedora: `sudo dnf install qt6-qtbase-devel`
+
+#### Compilation:
+In the client folder run:
 ```
 mkdir build
 cd build
@@ -27,27 +31,33 @@ cmake ..
 make
 ```
 
-#### Dependencies
-For Fedora:  
-`sudo dnf install qt6-qtbase-devel`
+### Windows (Cross-Compile Mingw)
+#### Dependencies:
+  - Fedora: `sudo dnf install mingw64-filesystem mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase mingw64-winpthreads-static`
 
-### Windows
-TODO
-
+#### Compilation:
+In the client folder run:
+```
+mkdir build_win
+cd build_win
+cmake .. -DCMAKE_TOOLCHAIN_FILE=../toolchain-mingw64.cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/x86_64-w64-mingw32/sys-root/mingw
+make
+```
+(You may need to change the CMAKE_PREFIX_PATH)
 
 ## Server
 ### Linux
-Install the dependencies and in the server folder run:
+#### Dependencies:
+  - Fedora: `sudo dnf install unixODBC-devel mysql-connector-odbc`
+
+#### Compilation:
+In the server folder run
 ```
 mkdir build
 cd build
 cmake ..
 make
 ```
-
-#### Dependencies
-For Fedora:  
-`sudo dnf install unixODBC-devel mysql-connector-odbc`
 
 ### Windows
 TODO

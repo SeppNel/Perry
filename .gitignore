@@ -1,5 +1,6 @@
 server/build
 client/build
+client/build_win
 server/.cache
 client/.cache
 *.cache
