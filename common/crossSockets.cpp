@@ -25,4 +25,17 @@ void initializeSockets() {
     return;
 }
 
+void closeSocket(int s) {
+    shutdown(s, SHUT_RDWR);
+
+#ifdef _WIN32
+    closesocket(s);
+    WSACleanup();
+#else
+    close(s);
+#endif
+
+    return;
+}
+
 } // namespace crossSockets

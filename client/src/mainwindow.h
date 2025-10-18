@@ -43,6 +43,9 @@ class MainWindow : public QMainWindow {
     void startVoiceThread();
     void requestUserImages();
 
+  protected:
+    void closeEvent(QCloseEvent *event) override;
+
   public slots:
     void populateChannels(const std::vector<ChannelInfo> &ch);
     void addMessage(const MessageInfo &str);

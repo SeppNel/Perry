@@ -1,10 +1,12 @@
 #include "mainwindow.h"
 #include "common_data.h"
 #include "config.h"
+#include "logger.h"
 #include "ui_mainwindow.h"
 #include "utils.h"
 #include "widgets/chatMessageWidget.h"
 #include "workers/voice_chat.h"
+#include <QCloseEvent>
 #include <QDateTime>
 #include <QListWidget>
 #include <QPushButton>
@@ -210,4 +212,14 @@ void MainWindow::onVcClosed() {
 
 void MainWindow::onUsersImgsReady(const std::unordered_map<uint32_t, QPixmap> &m) {
     m_usersImgs = m;
+}
+
+void MainWindow::closeEvent(QCloseEvent *event) {
+    LOG_DEBUG("Closing...");
+    finishCall();
+
+    while (currentVoiceChannel != -1) {
+        qSleepNonBlocking(1);
+    }
+    event->accept();
 }

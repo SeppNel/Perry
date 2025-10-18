@@ -4,6 +4,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 #endif
 
@@ -25,5 +26,6 @@ namespace crossSockets {
 
 void initializeSockets();
 void setSocketOptions(int sockfd, int level, int optname, const void *optval, socklen_t optlen);
+void closeSocket(int s);
 
 } // namespace crossSockets

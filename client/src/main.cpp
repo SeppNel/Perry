@@ -14,8 +14,11 @@
 #include <filesystem>
 #include <string>
 #include <unistd.h>
+#include <vector>
 
 namespace fs = std::filesystem;
+
+std::vector<QThread *> qThreads;
 
 void startWorkers(int sock, MainWindow &mainwindow) {
     // Prepare periodic background thread
@@ -65,6 +68,10 @@ void startWorkers(int sock, MainWindow &mainwindow) {
     thread->start();
     thread2->start();
     thread3->start();
+
+    qThreads.push_back(thread);
+    qThreads.push_back(thread2);
+    qThreads.push_back(thread3);
 }
 
 bool login(int sock) {
@@ -214,11 +221,25 @@ QScrollBar::down-arrow:vertical {
     MainWindow window;
     startWorkers(sock, window);
     window.init();
-
     window.show();
-
     app.exec();
 
-    close(sock);
+    crossSockets::closeSocket(sock);
+
+    LOG_DEBUG("Waiting for threads to finish...");
+    for (const auto t : qThreads) {
+        if (t->isRunning()) {
+            t->quit();
+        }
+    }
+
+    for (const auto t : qThreads) {
+        t->wait();
+        delete t;
+    }
+    LOG_DEBUG("All stopped");
+
+    Logger::shutdown();
+    exit(EXIT_SUCCESS); // Exit here beacuse Windows gets stuck after the return call (Maybe in QApplication destructor?)
     return 0;
 }
