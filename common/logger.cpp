@@ -6,6 +6,23 @@
 #include <mutex>
 #include <sstream>
 
+#ifdef _WIN32
+#include <windows.h>
+
+void enableANSI() {
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD dwMode = 0;
+    GetConsoleMode(hOut, &dwMode);
+    dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    SetConsoleMode(hOut, dwMode);
+}
+
+#endif
+
+#ifdef ERROR
+#undef ERROR
+#endif
+
 // Anon namespace for internal linkage
 namespace {
 
@@ -107,10 +124,12 @@ void writeLog(LogLevel level, const std::string &message,
 } // namespace
 
 namespace Logger {
-void init(const std::string &file_path,
-          LogLevel level,
-          bool console,
-          bool file) {
+void init(const std::string &file_path, LogLevel level, bool console, bool file) {
+
+#ifdef _WIN32
+    enableANSI();
+#endif
+
     std::lock_guard<std::mutex> lock(log_mutex);
 
     current_log_level = level;
