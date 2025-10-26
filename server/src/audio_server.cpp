@@ -59,11 +59,9 @@ void network_thread(int client_socket) {
         }
 
         for (const int client : clients_per_channel[channel]) {
-            /*
             if (client == client_socket) {
                 continue;
             }
-            */
 
             send_all(client, chunk.data(), CHUNK_SIZE * sizeof(float));
         }

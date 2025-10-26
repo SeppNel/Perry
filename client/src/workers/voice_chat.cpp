@@ -17,6 +17,8 @@
 // Ring buffer settings (SPSC)
 #define RING_MS 100
 
+#define SW_LATENCY 0.005 // in s
+
 static struct SoundIo *soundio = nullptr;
 static struct SoundIoDevice *in_device = nullptr;
 static struct SoundIoInStream *instream = nullptr;
@@ -131,8 +133,7 @@ static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
 
     struct SoundIoChannelArea *areas;
     int err;
-    int frames_left = frame_count_min;
-
+    int frames_left = frame_count_max;
     while (frames_left > 0) {
         int frame_count = frames_left;
         err = soundio_instream_begin_read(instream, &areas, &frame_count);
@@ -180,7 +181,7 @@ static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
 
 // Audio output callback
 static void write_callback(struct SoundIoOutStream *outstream, int frame_count_min, int frame_count_max) {
-    // Check if we're shutting down
+    //  Check if we're shutting down
     if (!running.load() || !ring_buffer_output) {
         return;
     }
@@ -188,7 +189,7 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
     struct SoundIoChannelArea *areas;
     int err;
 
-    int frames_left = frame_count_min;
+    int frames_left = frame_count_max;
     while (frames_left > 0) {
         int frame_count = frames_left;
         err = soundio_outstream_begin_write(outstream, &areas, &frame_count);
@@ -241,7 +242,10 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
 
 static void underflow_callback(struct SoundIoOutStream *outstream) {
     underflow_count++;
-    LOG_ERROR("Underflow " + std::to_string(underflow_count) + " (network latency too high)");
+
+    if (underflow_count % 5000000 == 0) {
+        LOG_ERROR("Underflow " + std::to_string(underflow_count) + " (network latency too high)");
+    }
 }
 
 void network_send_thread() {
@@ -254,7 +258,7 @@ void network_send_thread() {
         // If not enough samples, sleep a tiny bit
         int available = ring_fill_count(write_index_input, read_index_input);
         while (available < CHUNK_SIZE && running.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            // std::this_thread::sleep_for(std::chrono::milliseconds(1)); Windows doesnt play nice with this. Maybe change this to a event wait
             available = ring_fill_count(write_index_input, read_index_input);
         }
 
@@ -299,7 +303,7 @@ void network_recv_thread() {
         // Check if buffer would overflow
         int fill_count = ring_fill_count(write_index_output, read_index_output);
         if (fill_count + CHUNK_SIZE >= ring_buffer_size - 1) {
-            // Drop packet
+            LOG_DEBUG("Packet Dropped");
             continue;
         }
 
@@ -330,6 +334,7 @@ void start_input_stream() {
         running.store(false);
         return;
     }
+
     in_device = soundio_get_input_device(soundio, default_input_index);
     if (!in_device) {
         LOG_ERROR("Could not get input device");
@@ -337,11 +342,33 @@ void start_input_stream() {
         return;
     }
 
+    LOG_INFO("Input device: " + std::string(in_device->name));
+    LOG_INFO("Sample rates supported:");
+    for (int i = 0; i < in_device->sample_rate_count; i++) {
+        const SoundIoSampleRateRange &range = in_device->sample_rates[i];
+        LOG_INFO("  " + std::to_string(range.min) + " - " + std::to_string(range.max));
+    }
+
+    LOG_INFO("Formats supported:");
+    for (int i = 0; i < in_device->format_count; i++) {
+        LOG_INFO("  " + std::string(soundio_format_string(in_device->formats[i])));
+    }
+
+    LOG_INFO("Channel layouts:");
+    for (int i = 0; i < in_device->layout_count; i++) {
+        LOG_INFO("  " + std::string(in_device->layouts[i].name));
+    }
+
     instream = soundio_instream_create(in_device);
     instream->format = SoundIoFormatFloat32NE;
-    instream->layout = *soundio_channel_layout_get_builtin(SoundIoChannelLayoutIdMono);
+    // If mono not supported, use device’s default layout
+    if (soundio_device_supports_layout(in_device, soundio_channel_layout_get_builtin(SoundIoChannelLayoutIdMono))) {
+        instream->layout = *soundio_channel_layout_get_builtin(SoundIoChannelLayoutIdMono);
+    } else {
+        instream->layout = in_device->current_layout;
+    }
     instream->sample_rate = SAMPLE_RATE;
-    instream->software_latency = 0.005; // 5 ms capture latency
+    instream->software_latency = SW_LATENCY; // 5 ms capture latency
     instream->read_callback = read_callback;
     instream->overflow_callback = nullptr;
 
@@ -393,7 +420,7 @@ void start_output_stream() {
     outstream->format = SoundIoFormatFloat32NE;
     outstream->layout = *soundio_channel_layout_get_builtin(SoundIoChannelLayoutIdStereo);
     outstream->sample_rate = SAMPLE_RATE;
-    outstream->software_latency = 0.005; // 5ms
+    outstream->software_latency = SW_LATENCY; // 5ms
     outstream->write_callback = write_callback;
     outstream->underflow_callback = underflow_callback;
 
@@ -427,6 +454,8 @@ void run() {
         return;
     }
     soundio_flush_events(soundio);
+
+    LOG_INFO("Using SoundIo backend: " + std::string(soundio_backend_name(soundio->current_backend)));
 
     // Initialize soundio streams
     start_input_stream();
