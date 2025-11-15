@@ -77,7 +77,6 @@ void startWorkers(int sock, MainWindow &mainwindow) {
 bool login(int sock) {
     std::string username = Config::username;
     std::string passwd = Config::password;
-    uint8_t username_len = username.size();
 
     LOG_DEBUG("Sending username");
     send_string(sock, username);
