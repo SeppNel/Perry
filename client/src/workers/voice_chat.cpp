@@ -5,19 +5,23 @@
 #include <QThread>
 #include <atomic>
 #include <chrono>
+#include <opus.h>
 #include <soundio/soundio.h>
 #include <string>
+#include <thread>
 #include <unistd.h>
-#include <vector>
 
 // Audio configuration (must match server)
 #define SAMPLE_RATE 48000
-#define CHUNK_SIZE 240 // 5ms at 48kHz
+#define CHUNK_SIZE 120 // 5ms at 48kHz | Min of 120 for opus
 
 // Ring buffer settings (SPSC)
-#define RING_MS 100
+#define RING_MS 200
 
 #define SW_LATENCY 0.005 // in s
+
+// Opus
+#define MAX_OPUS_BYTES 1276
 
 static struct SoundIo *soundio = nullptr;
 static struct SoundIoDevice *in_device = nullptr;
@@ -42,7 +46,34 @@ static std::atomic<bool> running{true};
 static int vc_socket = -1;
 static uint32_t channel;
 
+// Opus
+static OpusEncoder *opus_encoder = nullptr;
+static OpusDecoder *opus_decoder = nullptr;
+
 void run();
+
+void init_opus() {
+    int err;
+    // Encoder
+    opus_encoder = opus_encoder_create(SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP, &err);
+    if (err != OPUS_OK) {
+        LOG_ERROR("opus_encoder_create failed: " + std::string(opus_strerror(err)));
+        running.store(false);
+        return;
+    }
+
+    // Set a target bitrate https://wiki.xiph.org/Opus_Recommended_Settings
+    opus_encoder_ctl(opus_encoder, OPUS_SET_BITRATE(38000));
+    opus_encoder_ctl(opus_encoder, OPUS_SET_COMPLEXITY(7));
+
+    // Decoder
+    opus_decoder = opus_decoder_create(SAMPLE_RATE, 1, &err);
+    if (err != OPUS_OK) {
+        LOG_ERROR("opus_decoder_create failed: " + std::string(opus_strerror(err)));
+        running.store(false);
+        return;
+    }
+}
 
 void VoiceChat::init(std::string ip, uint port, uint32_t ch) {
     channel = ch;
@@ -127,13 +158,14 @@ static void produce_samples(const float *samples, int nframes) {
 // Audio input callback
 static void read_callback(struct SoundIoInStream *instream, int frame_count_min, int frame_count_max) {
     // Check if we're shutting down
-    if (!running.load() || !ring_buffer_input) {
+    if (!running.load()) {
         return;
     }
 
     struct SoundIoChannelArea *areas;
     int err;
-    int frames_left = frame_count_max;
+    int frames_left = std::max(CHUNK_SIZE, frame_count_min);
+    frames_left = std::min(frames_left, frame_count_max);
     while (frames_left > 0) {
         int frame_count = frames_left;
         err = soundio_instream_begin_read(instream, &areas, &frame_count);
@@ -182,14 +214,17 @@ static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
 // Audio output callback
 static void write_callback(struct SoundIoOutStream *outstream, int frame_count_min, int frame_count_max) {
     //  Check if we're shutting down
-    if (!running.load() || !ring_buffer_output) {
+    if (!running.load()) {
         return;
     }
 
-    struct SoundIoChannelArea *areas;
-    int err;
+    static struct SoundIoChannelArea *areas;
+    static int err;
 
     int frames_left = frame_count_max;
+    if (frame_count_min > 0) {
+        frames_left = frame_count_min;
+    }
     while (frames_left > 0) {
         int frame_count = frames_left;
         err = soundio_outstream_begin_write(outstream, &areas, &frame_count);
@@ -199,26 +234,14 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
             return;
         }
 
-        // If no frames, we're done
-        if (frame_count == 0) {
-            break;
-        }
-
         int current_read = read_index_output.load(std::memory_order_relaxed);
         int fill_count = ring_fill_count(write_index_output, read_index_output);
+        int copy_frames = std::min(fill_count, frame_count);
+        int silence_frames = frame_count - copy_frames;
 
-        for (int frame = 0; frame < frame_count; frame++) {
-            float sample = 0.0f;
-
-            // Read from network buffer
-            if (fill_count > 0) {
-                sample = ring_buffer_output[current_read];
-                current_read = (current_read + 1) % ring_buffer_size;
-                fill_count--;
-            } else {
-                // If underflow: output silence
-                sample = 0.0f;
-            }
+        for (int frame = 0; frame < copy_frames; frame++) {
+            float sample = ring_buffer_output[current_read];
+            current_read = (current_read + 1) % ring_buffer_size;
 
             // Write mono sample to all channels
             for (int channel = 0; channel < outstream->layout.channel_count; channel++) {
@@ -227,7 +250,15 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
             }
         }
 
+        for (int frame = 0; frame < silence_frames; frame++) {
+            for (int channel = 0; channel < outstream->layout.channel_count; channel++) {
+                float *ptr = (float *)(areas[channel].ptr + areas[channel].step * frame);
+                *ptr = 0.0f;
+            }
+        }
+
         read_index_output.store(current_read, std::memory_order_release);
+        frames_left -= frame_count;
 
         err = soundio_outstream_end_write(outstream);
         if (err) {
@@ -235,17 +266,12 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
             running.store(false);
             return;
         }
-
-        frames_left -= frame_count;
     }
 }
 
 static void underflow_callback(struct SoundIoOutStream *outstream) {
     underflow_count++;
-
-    if (underflow_count % 5000000 == 0) {
-        LOG_ERROR("Underflow " + std::to_string(underflow_count) + " (network latency too high)");
-    }
+    LOG_ERROR("Underflow " + std::to_string(underflow_count) + " (network latency too high)");
 }
 
 void network_send_thread() {
@@ -254,6 +280,8 @@ void network_send_thread() {
     LOG_DEBUG("Connected to server, streaming audio...");
 
     std::vector<float> sendbuf(CHUNK_SIZE);
+    std::vector<unsigned char> opus_buf(MAX_OPUS_BYTES);
+
     while (running.load()) {
         // If not enough samples, sleep a tiny bit
         int available = ring_fill_count(write_index_input, read_index_input);
@@ -274,8 +302,27 @@ void network_send_thread() {
         }
         read_index_input.store(r, std::memory_order_release);
 
-        // sendbuf ready: send all bytes
-        if (!send_all(vc_socket, sendbuf.data(), CHUNK_SIZE * sizeof(float))) {
+        int nb_bytes = opus_encode_float(opus_encoder,
+                                         sendbuf.data(),
+                                         CHUNK_SIZE,
+                                         opus_buf.data(),
+                                         MAX_OPUS_BYTES);
+
+        if (nb_bytes < 0) {
+            LOG_ERROR("Opus encode failed: " + std::string(opus_strerror(nb_bytes)));
+            running.store(false);
+            break;
+        }
+
+        // Send length prefix (uint16 network-order) then packet
+        uint16_t len16 = static_cast<uint16_t>(nb_bytes);
+        uint16_t len_net = htons(len16);
+        if (!send_all(vc_socket, &len_net, sizeof(len_net))) {
+            LOG_ERROR("Error sending opus length");
+            running.store(false);
+            break;
+        }
+        if (!send_all(vc_socket, opus_buf.data(), nb_bytes)) {
             LOG_ERROR("Error sending voice");
             running.store(false);
         }
@@ -287,33 +334,59 @@ void network_send_thread() {
 }
 
 void network_recv_thread() {
+    std::vector<unsigned char> packet_buf(MAX_OPUS_BYTES);
     std::vector<float> chunk(CHUNK_SIZE);
 
     LOG_DEBUG("Connected, receiving audio...");
 
     int current_write = write_index_output.load(std::memory_order_relaxed);
     while (running.load()) {
-        bool got = recv_all(vc_socket, chunk.data(), CHUNK_SIZE * sizeof(float));
-        if (!got) {
-            LOG_ERROR("Disconnected or read error");
+        uint16_t len_net;
+        if (!recv_all(vc_socket, &len_net, sizeof(len_net))) {
+            LOG_ERROR("Disconnected or read error (len)");
+            running.store(false);
+            break;
+        }
+        uint16_t nb_bytes = ntohs(len_net);
+        if (nb_bytes == 0 || nb_bytes > (int)packet_buf.size()) {
+            LOG_ERROR("Invalid packet length");
             running.store(false);
             break;
         }
 
+        if (!recv_all(vc_socket, packet_buf.data(), nb_bytes)) {
+            LOG_ERROR("Disconnected or read error (payload)");
+            running.store(false);
+            break;
+        }
+
+        int frame_count = opus_decode_float(opus_decoder,
+                                            packet_buf.data(),
+                                            nb_bytes,
+                                            chunk.data(),
+                                            CHUNK_SIZE,
+                                            0);
+        if (frame_count < 0) {
+            LOG_ERROR("Opus decode failed: " + std::string(opus_strerror(frame_count)));
+            continue;
+        }
+
         // Check if buffer would overflow
         int fill_count = ring_fill_count(write_index_output, read_index_output);
-        if (fill_count + CHUNK_SIZE >= ring_buffer_size - 1) {
+        if (fill_count + frame_count >= ring_buffer_size - 1) {
             LOG_DEBUG("Packet Dropped");
             continue;
         }
 
         // Write chunk to ring buffer
-        for (int i = 0; i < CHUNK_SIZE; i++) {
+        for (int i = 0; i < frame_count; i++) {
             ring_buffer_output[current_write] = chunk[i];
             current_write = (current_write + 1) % ring_buffer_size;
         }
 
         write_index_output.store(current_write, std::memory_order_release);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        std::this_thread::yield();
     }
 
     LOG_DEBUG("Network recv exited");
@@ -467,6 +540,9 @@ void run() {
         return;
     }
 
+    // Start Opus En/Decoders
+    init_opus();
+
     // Start network threads
     std::thread net_send(network_send_thread);
     std::thread net_recv(network_recv_thread);
@@ -493,6 +569,10 @@ void run() {
     // Clean up ring buffers
     delete[] ring_buffer_input;
     delete[] ring_buffer_output;
+
+    // Destroy opus stuff
+    opus_encoder_destroy(opus_encoder);
+    opus_decoder_destroy(opus_decoder);
 
     // Reset everything
     soundio = nullptr;
