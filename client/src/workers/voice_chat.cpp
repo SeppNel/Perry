@@ -4,7 +4,7 @@
 #include "packets.h"
 #include <QThread>
 #include <atomic>
-#include <chrono>
+#include <cstring>
 #include <opus.h>
 #include <soundio/soundio.h>
 #include <string>
@@ -13,10 +13,11 @@
 
 // Audio configuration (must match server)
 #define SAMPLE_RATE 48000
-#define CHUNK_SIZE 120 // 5ms at 48kHz | Min of 120 for opus
+#define CHUNK_SIZE 120 // 2.5ms at 48kHz | Minimum Opus frame size
 
-// Ring buffer settings (SPSC)
-#define RING_MS 200
+// Ring buffer settings
+#define RING_MS 150
+#define BYTES_PER_FRAME (int)sizeof(float)
 
 #define SW_LATENCY 0.005 // in s
 
@@ -29,16 +30,9 @@ static struct SoundIoInStream *instream = nullptr;
 static struct SoundIoDevice *out_device = nullptr;
 static struct SoundIoOutStream *outstream = nullptr;
 
-// SPSC ring buffer
-static int ring_buffer_size = (SAMPLE_RATE * RING_MS) / 1000;
-
-static float *ring_buffer_input = nullptr;
-static std::atomic<int> write_index_input{0}; // next write pos (mod ring_buffer_size)
-static std::atomic<int> read_index_input{0};  // next read pos (mod ring_buffer_size)
-
-static float *ring_buffer_output = nullptr;
-static std::atomic<int> write_index_output{0};
-static std::atomic<int> read_index_output{0};
+// Ring buffers
+SoundIoRingBuffer *ring_buffer_input = nullptr;
+SoundIoRingBuffer *ring_buffer_output = nullptr;
 
 static int underflow_count = 0;
 
@@ -83,10 +77,6 @@ void VoiceChat::init(std::string ip, uint port, uint32_t ch) {
     int flag = 1;
     crossSockets::setSocketOptions(vc_socket, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
-    // enlarge send buffer
-    int sndbuf = CHUNK_SIZE * sizeof(float) * 8;
-    crossSockets::setSocketOptions(vc_socket, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
-
     struct sockaddr_in srv;
     srv.sin_family = AF_INET;
     srv.sin_port = htons(port);
@@ -123,36 +113,38 @@ void VoiceChat::stop() {
     QThread::currentThread()->quit();
 }
 
-// Helper to compute fill count (samples available)
-static inline int ring_fill_count(const std::atomic<int> &write_index, const std::atomic<int> &read_index) {
-    int w = write_index.load(std::memory_order_acquire);
-    int r = read_index.load(std::memory_order_acquire);
-    int fill = w - r;
-    if (fill < 0)
-        fill += ring_buffer_size;
-    return fill;
+static inline int frames_fill_count(SoundIoRingBuffer *rb) {
+    return soundio_ring_buffer_fill_count(rb) / BYTES_PER_FRAME;
 }
 
-// Produce samples into the ring buffer from audio callback
+// Produce samples into the SoundIo ring buffer from Input callback
 static void produce_samples(const float *samples, int nframes) {
-    int w = write_index_input.load(std::memory_order_relaxed);
-    for (int i = 0; i < nframes; ++i) {
-        if (!samples) {
-            ring_buffer_input[w] = 0.0f;
-        } else {
-            ring_buffer_input[w] = samples[i];
-        }
-        w = (w + 1) % ring_buffer_size;
-        // If buffer would overflow, advance read index (drop oldest sample)
-        int next_w = w;
-        int r = read_index_input.load(std::memory_order_relaxed);
-        if (next_w == r) {
-            // overflow: drop oldest
-            r = (r + 1) % ring_buffer_size;
-            read_index_input.store(r, std::memory_order_relaxed);
+    const int bytes_to_write = nframes * BYTES_PER_FRAME;
+
+    int free_bytes = soundio_ring_buffer_free_count(ring_buffer_input);
+
+    // If not enough space, drop old samples (advance read pointer)
+    if (free_bytes < bytes_to_write) {
+        int overflow_bytes = bytes_to_write - free_bytes;
+        overflow_bytes = (overflow_bytes / BYTES_PER_FRAME) * BYTES_PER_FRAME;
+
+        soundio_ring_buffer_advance_read_ptr(ring_buffer_input, overflow_bytes);
+    }
+
+    char *write_ptr = soundio_ring_buffer_write_ptr(ring_buffer_input);
+    float *out = reinterpret_cast<float *>(write_ptr);
+
+    if (samples) {
+        // Copy samples directly
+        memcpy(out, samples, bytes_to_write);
+    } else {
+        // Fill with silence
+        for (int i = 0; i < nframes; i++) {
+            out[i] = 0.0f;
         }
     }
-    write_index_input.store(w, std::memory_order_release);
+
+    soundio_ring_buffer_advance_write_ptr(ring_buffer_input, bytes_to_write);
 }
 
 // Audio input callback
@@ -190,12 +182,28 @@ static void read_callback(struct SoundIoInStream *instream, int frame_count_min,
             }
         } else {
             // Copy frames into a temporary stack buffer in small blocks to call
+            int device_channels = instream->layout.channel_count;
             while (processed < frame_count) {
                 int tocopy = std::min(CHUNK_SIZE, frame_count - processed);
                 float temp[CHUNK_SIZE];
-                for (int i = 0; i < tocopy; ++i) {
-                    temp[i] = *((float *)(areas[0].ptr + (processed + i) * areas[0].step));
+
+                if (device_channels == 1) {
+                    // straightforward copy from areas[0]
+                    for (int i = 0; i < tocopy; ++i) {
+                        temp[i] = *((float *)(areas[0].ptr + (processed + i) * areas[0].step));
+                    }
+                } else {
+                    // mix all channels to mono (average)
+                    for (int i = 0; i < tocopy; ++i) {
+                        float sum = 0.0f;
+                        for (int c = 0; c < device_channels; ++c) {
+                            float *src = (float *)(areas[c].ptr + (processed + i) * areas[c].step);
+                            sum += *src;
+                        }
+                        temp[i] = sum / device_channels;
+                    }
                 }
+
                 produce_samples(temp, tocopy);
                 processed += tocopy;
             }
@@ -234,30 +242,29 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
             return;
         }
 
-        int current_read = read_index_output.load(std::memory_order_relaxed);
-        int fill_count = ring_fill_count(write_index_output, read_index_output);
+        float *buffer = (float *)soundio_ring_buffer_read_ptr(ring_buffer_output);
+        int fill_count = frames_fill_count(ring_buffer_output);
         int copy_frames = std::min(fill_count, frame_count);
         int silence_frames = frame_count - copy_frames;
 
         for (int frame = 0; frame < copy_frames; frame++) {
-            float sample = ring_buffer_output[current_read];
-            current_read = (current_read + 1) % ring_buffer_size;
+            float sample = buffer[frame];
 
             // Write mono sample to all channels
-            for (int channel = 0; channel < outstream->layout.channel_count; channel++) {
-                float *ptr = (float *)(areas[channel].ptr + areas[channel].step * frame);
+            for (int ch = 0; ch < outstream->layout.channel_count; ch++) {
+                float *ptr = (float *)(areas[ch].ptr + areas[ch].step * frame);
                 *ptr = sample;
             }
         }
 
-        for (int frame = 0; frame < silence_frames; frame++) {
-            for (int channel = 0; channel < outstream->layout.channel_count; channel++) {
-                float *ptr = (float *)(areas[channel].ptr + areas[channel].step * frame);
+        for (int frame = copy_frames; frame < frame_count; frame++) {
+            for (int ch = 0; ch < outstream->layout.channel_count; ch++) {
+                float *ptr = (float *)(areas[ch].ptr + areas[ch].step * frame);
                 *ptr = 0.0f;
             }
         }
 
-        read_index_output.store(current_read, std::memory_order_release);
+        soundio_ring_buffer_advance_read_ptr(ring_buffer_output, copy_frames * BYTES_PER_FRAME);
         frames_left -= frame_count;
 
         err = soundio_outstream_end_write(outstream);
@@ -284,10 +291,10 @@ void network_send_thread() {
 
     while (running.load()) {
         // If not enough samples, sleep a tiny bit
-        int available = ring_fill_count(write_index_input, read_index_input);
+        int available = frames_fill_count(ring_buffer_input);
         while (available < CHUNK_SIZE && running.load()) {
             // std::this_thread::sleep_for(std::chrono::milliseconds(1)); Windows doesnt play nice with this. Maybe change this to a event wait
-            available = ring_fill_count(write_index_input, read_index_input);
+            available = frames_fill_count(ring_buffer_input);
         }
 
         // Check again after the wait loop
@@ -295,12 +302,9 @@ void network_send_thread() {
             break;
         }
 
-        int r = read_index_input.load(std::memory_order_relaxed);
-        for (int i = 0; i < CHUNK_SIZE; ++i) {
-            sendbuf[i] = ring_buffer_input[r];
-            r = (r + 1) % ring_buffer_size;
-        }
-        read_index_input.store(r, std::memory_order_release);
+        float *read_buf = (float *)soundio_ring_buffer_read_ptr(ring_buffer_input);
+        memcpy(sendbuf.data(), read_buf, CHUNK_SIZE * BYTES_PER_FRAME);
+        soundio_ring_buffer_advance_read_ptr(ring_buffer_input, CHUNK_SIZE * BYTES_PER_FRAME);
 
         int nb_bytes = opus_encode_float(opus_encoder,
                                          sendbuf.data(),
@@ -339,7 +343,6 @@ void network_recv_thread() {
 
     LOG_DEBUG("Connected, receiving audio...");
 
-    int current_write = write_index_output.load(std::memory_order_relaxed);
     while (running.load()) {
         uint16_t len_net;
         if (!recv_all(vc_socket, &len_net, sizeof(len_net))) {
@@ -372,19 +375,18 @@ void network_recv_thread() {
         }
 
         // Check if buffer would overflow
-        int fill_count = ring_fill_count(write_index_output, read_index_output);
-        if (fill_count + frame_count >= ring_buffer_size - 1) {
+        int free = soundio_ring_buffer_free_count(ring_buffer_output);
+        int bytes_to_write = frame_count * BYTES_PER_FRAME;
+        if (free < bytes_to_write) {
             LOG_DEBUG("Packet Dropped");
             continue;
         }
 
         // Write chunk to ring buffer
-        for (int i = 0; i < frame_count; i++) {
-            ring_buffer_output[current_write] = chunk[i];
-            current_write = (current_write + 1) % ring_buffer_size;
-        }
+        float *buffer = (float *)soundio_ring_buffer_write_ptr(ring_buffer_output);
+        memcpy(buffer, chunk.data(), bytes_to_write);
+        soundio_ring_buffer_advance_write_ptr(ring_buffer_output, bytes_to_write);
 
-        write_index_output.store(current_write, std::memory_order_release);
         // std::this_thread::sleep_for(std::chrono::milliseconds(2));
         std::this_thread::yield();
     }
@@ -393,14 +395,6 @@ void network_recv_thread() {
 }
 
 void start_input_stream() {
-    // allocate ring buffer
-    ring_buffer_input = new float[ring_buffer_size];
-    if (!ring_buffer_input) {
-        LOG_ERROR("Unable to allocate ring buffer");
-        return;
-    }
-    memset(ring_buffer_input, 0, ring_buffer_size * sizeof(float));
-
     int default_input_index = soundio_default_input_device_index(soundio);
     if (default_input_index < 0) {
         LOG_ERROR("No input device found");
@@ -452,6 +446,14 @@ void start_input_stream() {
         return;
     }
 
+    // allocate ring buffer
+    int capacity = (int)(((double)RING_MS / 1000.0) * SAMPLE_RATE) * BYTES_PER_FRAME;
+    ring_buffer_input = soundio_ring_buffer_create(soundio, capacity);
+    if (!ring_buffer_input) {
+        LOG_ERROR("Unable to allocate ring buffer");
+        return;
+    }
+
     err = soundio_instream_start(instream);
     if (err) {
         LOG_ERROR("Unable to start input stream: " + std::string(soundio_strerror(err)));
@@ -461,17 +463,6 @@ void start_input_stream() {
 }
 
 void start_output_stream() {
-    // Create ring buffer for network audio
-    ring_buffer_output = new float[ring_buffer_size];
-    if (!ring_buffer_output) {
-        LOG_ERROR("Unable to allocate ring buffer");
-        running.store(false);
-        return;
-    }
-    memset(ring_buffer_output, 0, ring_buffer_size * sizeof(float));
-    write_index_output.store(0);
-    read_index_output.store(0);
-
     // Get default output device
     int default_output_index = soundio_default_output_device_index(soundio);
     if (default_output_index < 0) {
@@ -501,6 +492,14 @@ void start_output_stream() {
     if (err) {
         LOG_ERROR("Unable to open output stream: " + std::string(soundio_strerror(err)));
         running.store(false);
+        return;
+    }
+
+    // allocate ring buffer
+    int capacity = (int)(((double)RING_MS / 1000.0) * SAMPLE_RATE) * BYTES_PER_FRAME;
+    ring_buffer_output = soundio_ring_buffer_create(soundio, capacity);
+    if (!ring_buffer_output) {
+        LOG_ERROR("Unable to allocate ring buffer");
         return;
     }
 
@@ -567,8 +566,8 @@ void run() {
     soundio_destroy(soundio);
 
     // Clean up ring buffers
-    delete[] ring_buffer_input;
-    delete[] ring_buffer_output;
+    soundio_ring_buffer_destroy(ring_buffer_input);
+    soundio_ring_buffer_destroy(ring_buffer_output);
 
     // Destroy opus stuff
     opus_encoder_destroy(opus_encoder);
@@ -582,10 +581,6 @@ void run() {
     outstream = nullptr;
     ring_buffer_input = nullptr;
     ring_buffer_output = nullptr;
-    write_index_input.store(0);
-    read_index_input.store(0);
-    write_index_output.store(0);
-    read_index_output.store(0);
     vc_socket = -1;
     underflow_count = 0;
 

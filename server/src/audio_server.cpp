@@ -18,7 +18,7 @@
 #include <vector>
 
 // Configuration
-#define CHUNK_SIZE 240 // 5ms at 48kHz
+#define CHUNK_SIZE 120 // 2.5ms at 48kHz
 
 std::atomic<bool> AudioServer::running{true};
 
@@ -122,10 +122,6 @@ void AudioServer::run() {
         // Configure client socket for low latency
         int flag = 1;
         setsockopt(client_socket, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-
-        // Increase recv buffer
-        int rcvbuf = CHUNK_SIZE * sizeof(float) * 16;
-        setsockopt(client_socket, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
 
         // Handle client in separate thread
         std::thread client_thread(network_thread, client_socket);
